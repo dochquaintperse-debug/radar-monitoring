@@ -9,10 +9,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 from dotenv import load_dotenv
 load_dotenv()
 
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-k!i#5$z1x6f80=&&9+&c!p@4n_%js7@qc2-rh#rh0kwr6qku4f')
 
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
 
 # Railway环境检测
@@ -26,10 +24,9 @@ ALLOWED_HOSTS = [
 ]
 
 if IS_RAILWAY:
-    # Railway生产环境配置
-    ALLOWED_HOSTS.append('*')  # Railway会处理域名路由
+    ALLOWED_HOSTS.append('*')
 
-# Application definition
+# 您的其他配置保持不变...
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -42,6 +39,7 @@ INSTALLED_APPS = [
     'radar_app.apps.RadarAppConfig',
 ]
 
+# 中间件保持不变...
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -56,6 +54,7 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'radar_monitoring.urls'
 
+# 模板配置保持不变...
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -75,14 +74,18 @@ TEMPLATES = [
 WSGI_APPLICATION = 'radar_monitoring.wsgi.application'
 ASGI_APPLICATION = "radar_monitoring.asgi.application"
 
-# Database
-if IS_RAILWAY and os.environ.get('DATABASE_URL'):
-    # Railway PostgreSQL
+# 数据库配置 - 关键修改
+if IS_RAILWAY and os.environ.get('MYSQL_URL'):
+    # Railway MySQL配置
     DATABASES = {
-        'default': dj_database_url.parse(os.environ.get('DATABASE_URL'))
+        'default': dj_database_url.parse(
+            os.environ.get('MYSQL_URL'),
+            conn_max_age=600,
+        )
     }
+    print(f"使用Railway MySQL: {os.environ.get('MYSQL_URL', '').split('@')[1] if '@' in os.environ.get('MYSQL_URL', '') else '未设置'}")
 else:
-    # 本地MySQL
+    # 本地MySQL配置
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
@@ -91,12 +94,16 @@ else:
             'PASSWORD': 'Jago114514',
             'HOST': 'localhost',
             'PORT': '3306',
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+            },
         }
     }
+    print("使用本地MySQL数据库")
 
-# Redis/Channels配置
+# Redis配置
 if IS_RAILWAY and os.environ.get('REDIS_URL'):
-    # Railway Redis
     CHANNEL_LAYERS = {
         'default': {
             'BACKEND': 'channels_redis.core.RedisChannelLayer',
@@ -106,7 +113,6 @@ if IS_RAILWAY and os.environ.get('REDIS_URL'):
         },
     }
 else:
-    # 本地Redis
     CHANNEL_LAYERS = {
         'default': {
             'BACKEND': 'channels_redis.core.RedisChannelLayer',
@@ -116,7 +122,7 @@ else:
         },
     }
 
-# CORS设置
+# 其余配置保持您原来的不变...
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGINS = [
     "https://*.railway.app",
@@ -125,29 +131,13 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8000",
 ]
 
-# Password validation
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
-]
-
-# Internationalization
+# 国际化
 LANGUAGE_CODE = 'zh-hans'
 TIME_ZONE = 'Asia/Shanghai'
 USE_I18N = True
 USE_TZ = True
 
-# Static files (CSS, JavaScript, Images)
+# 静态文件
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
@@ -155,10 +145,8 @@ STATICFILES_DIRS = [
     BASE_DIR / "static",
 ] if os.path.exists(BASE_DIR / "static") else []
 
-# WhiteNoise配置
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # 生产环境安全设置

@@ -8,8 +8,8 @@ redis==4.5.4
 paho-mqtt==1.6.1
 pyserial==3.5
 asgiref==3.6.0
-psycopg2-binary==2.9.6
 gunicorn==21.2.0
 daphne==4.0.0
 whitenoise==6.4.0
 django-cors-headers==4.0.0
+
