@@ -26,7 +26,6 @@ ALLOWED_HOSTS = [
 if IS_RAILWAY:
     ALLOWED_HOSTS.append('*')
 
-# 您的其他配置保持不变...
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -39,7 +38,6 @@ INSTALLED_APPS = [
     'radar_app.apps.RadarAppConfig',
 ]
 
-# 中间件保持不变...
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
@@ -54,7 +52,6 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'radar_monitoring.urls'
 
-# 模板配置保持不变...
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -74,18 +71,43 @@ TEMPLATES = [
 WSGI_APPLICATION = 'radar_monitoring.wsgi.application'
 ASGI_APPLICATION = "radar_monitoring.asgi.application"
 
-# 数据库配置 - 关键修改
-if IS_RAILWAY and os.environ.get('MYSQL_URL'):
-    # Railway MySQL配置
-    DATABASES = {
-        'default': dj_database_url.parse(
-            os.environ.get('MYSQL_URL'),
-            conn_max_age=600,
-        )
-    }
-    print(f"使用Railway MySQL: {os.environ.get('MYSQL_URL', '').split('@')[1] if '@' in os.environ.get('MYSQL_URL', '') else '未设置'}")
+# 数据库配置 - 支持Railway MySQL和本地MySQL
+if IS_RAILWAY:
+    # Railway环境 - 支持多种MySQL连接方式
+    mysql_url = (
+        os.environ.get('MYSQL_URL') or 
+        os.environ.get('DATABASE_URL') or
+        f"mysql://{os.environ.get('MYSQLUSER', '')}:{os.environ.get('MYSQLPASSWORD', '')}@{os.environ.get('MYSQLHOST', '')}:{os.environ.get('MYSQLPORT', '3306')}/{os.environ.get('MYSQLDATABASE', '')}"
+    )
+    
+    if mysql_url and mysql_url != "mysql://:@:3306/":
+        # 使用dj_database_url解析MySQL连接
+        DATABASES = {
+            'default': dj_database_url.parse(
+                mysql_url,
+                conn_max_age=600,
+            )
+        }
+        print(f"使用Railway MySQL: {mysql_url.split('@')[1] if '@' in mysql_url else '配置中'}")
+    else:
+        # 手动配置Railway MySQL
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.mysql',
+                'NAME': os.environ.get('MYSQLDATABASE', 'railway'),
+                'USER': os.environ.get('MYSQLUSER', 'root'),
+                'PASSWORD': os.environ.get('MYSQLPASSWORD', ''),
+                'HOST': os.environ.get('MYSQLHOST', 'localhost'),
+                'PORT': os.environ.get('MYSQLPORT', '3306'),
+                'OPTIONS': {
+                    'charset': 'utf8mb4',
+                    'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+                },
+            }
+        }
+        print(f"使用Railway MySQL手动配置: {os.environ.get('MYSQLHOST', 'localhost')}")
 else:
-    # 本地MySQL配置
+    # 本地MySQL配置（保持您原来的设置）
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
@@ -122,7 +144,6 @@ else:
         },
     }
 
-# 其余配置保持您原来的不变...
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGINS = [
     "https://*.railway.app",
