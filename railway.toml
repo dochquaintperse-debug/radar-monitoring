@@ -1,0 +1,28 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 300
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+[[services]]
+name = "radar-monitoring"
+
+[services.radar-monitoring]
+source = "."
+variables = { SECRET_KEY = "${{SECRET_KEY}}", DEBUG = "False" }
+
+[[services]]
+name = "redis"
+
+[services.redis]
+image = "redis:7-alpine"
+
+[[services]]
+name = "postgres"
+
+[services.postgres]
+image = "postgres:15-alpine"
+variables = { POSTGRES_DB = "radar_db", POSTGRES_USER = "radar_user", POSTGRES_PASSWORD = "${{POSTGRES_PASSWORD}}" }

@@ -1,0 +1,15 @@
+Collecting channels
+  Using cached channels-4.3.1-py3-none-any.whl.metadata (4.6 kB)
+Collecting channels-redis
+  Using cached channels_redis-4.3.0-py3-none-any.whl.metadata (13 kB)
+Requirement already satisfied: Django>=4.2 in c:\users\administrator\appdata\local\programs\python\python313\lib\site-packages (from channels) (4.2.23)
+Requirement already satisfied: asgiref<4,>=3.9.0 in c:\users\administrator\appdata\local\programs\python\python313\lib\site-packages (from channels) (3.9.1)
+Requirement already satisfied: redis>=4.6 in c:\users\administrator\appdata\local\programs\python\python313\lib\site-packages (from channels-redis) (6.4.0)
+Requirement already satisfied: msgpack~=1.0 in c:\users\administrator\appdata\local\programs\python\python313\lib\site-packages (from channels-redis) (1.1.1)
+Requirement already satisfied: sqlparse>=0.3.1 in c:\users\administrator\appdata\local\programs\python\python313\lib\site-packages (from Django>=4.2->channels) (0.5.3)
+Requirement already satisfied: tzdata in c:\users\administrator\appdata\local\programs\python\python313\lib\site-packages (from Django>=4.2->channels) (2025.2)
+Using cached channels-4.3.1-py3-none-any.whl (31 kB)
+Using cached channels_redis-4.3.0-py3-none-any.whl (20 kB)
+Installing collected packages: channels, channels-redis
+
+Successfully installed channels-4.3.1 channels-redis-4.3.0
