@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
+<!-- 保持现有的HTML内容不变 -->
 <div class="row">
     <div class="col-md-8">
         <div class="card">
@@ -23,7 +24,7 @@
                         <button id="refreshPortsBtn" class="btn btn-outline-secondary">
                             刷新串口
                         </button>
-                        <button id="openPortBtn" class="btn btn-outline-primary">
+                        <button id="openPortBtn" class="btn btn-outline-primary" disabled>
                             打开串口
                         </button>
                     </div>
@@ -43,6 +44,7 @@
                     <button id="monitoringBtn" class="btn btn-success btn-lg" disabled>监测模式</button>
                 </div>
                 
+                <!-- 其余HTML保持不变... -->
                 <!-- 训练状态显示 -->
                 <div id="trainingStatus" style="display: none; margin-bottom: 20px;">
                     <div class="alert alert-warning" role="alert">
@@ -56,7 +58,6 @@
                 </div>
                 
                 <h4>呼吸数据实时图表</h4>
-                <!-- 图表容器 -->
                 <div style="height: 300px; margin-bottom: 20px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px;">
                     <canvas id="breathChart"></canvas>
                 </div>
@@ -132,9 +133,223 @@
     let breathChart;
     let chartData = [];
     let chartLabels = [];
-    let trainingTimer = null; // 训练定时器
-    let trainingCountdownTimer = null; // 倒计时定时器
+    let trainingTimer = null;
+    let trainingCountdownTimer = null;
+    let portOpened = false;
+    let ws = null; // 关键：声明WebSocket变量
     
+    // 🔧 关键修复：智能WebSocket连接
+    function initWebSocket() {
+        // 自动检测协议（HTTP/HTTPS对应ws/wss）
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/radar/`;
+        
+        console.log(`🔗 尝试连接WebSocket: ${wsUrl}`);
+        
+        try {
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                document.getElementById('statusIndicator').className = 'connected';
+                document.getElementById('connectionStatus').textContent = '连接状态：已连接';
+                toastr.success('WebSocket连接成功');
+                
+                // 🔧 修复：连接成功后立即自动扫描串口
+                setTimeout(() => {
+                    autoRefreshPorts();
+                }, 1000);
+            };
+
+            ws.onclose = function(event) {
+                document.getElementById('statusIndicator').className = 'disconnected';
+                document.getElementById('connectionStatus').textContent = '连接状态：已断开';
+                
+                if (event.wasClean) {
+                    toastr.warning('WebSocket连接已关闭');
+                } else {
+                    toastr.error('WebSocket连接意外断开，3秒后重试...');
+                    // 自动重连
+                    setTimeout(initWebSocket, 3000);
+                }
+            };
+
+            ws.onerror = function(error) {
+                console.error('WebSocket错误:', error);
+                toastr.error('WebSocket连接失败');
+            };
+            
+            // 现有的消息处理逻辑保持不变
+            ws.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                switch(data.type) {
+                    case 'training_started':
+                        toastr.info(data.message);
+                        $('#trainingStatus').show();
+                        startTrainingCountdown();
+                        
+                        trainingTimer = setTimeout(() => {
+                            sendWebSocketCommand({ command: 'stop_training' });
+                            toastr.warning('训练时间已到，自动结束训练');
+                        }, 60000);
+                        break;
+
+                    case 'radar_data':
+                        const dataList = document.getElementById('realtime-data');
+                        
+                        if (dataList.children.length === 1 && dataList.children[0].textContent === '等待数据...') {
+                            dataList.innerHTML = '';
+                        }
+                        
+                        const newItem = document.createElement('li');
+                        newItem.className = 'list-group-item d-flex justify-content-between align-items-center';
+                        
+                        const timeStr = new Date(data.timestamp).toLocaleTimeString();
+                        newItem.innerHTML = `
+                            <div>
+                                <strong>传感器${data.sensor_id}</strong>: ${data.value} 
+                                <small class="text-muted">(${data.hex_value})</small>
+                            </div>
+                            <small class="text-muted">${timeStr}</small>
+                        `;
+                        
+                        dataList.insertBefore(newItem, dataList.firstChild);
+
+                        const sensorIdNum = data.sensor_id.replace(/\D/g, '');
+                        const latestValueElem = document.getElementById(`latest-value-${sensorIdNum}`);
+                        if (latestValueElem) {
+                            latestValueElem.textContent = data.value;
+                            latestValueElem.className = 'badge badge-success';
+                            
+                            setTimeout(() => {
+                                latestValueElem.className = 'badge badge-info';
+                            }, 3000);
+                        }
+
+                        while (dataList.children.length > 20) {
+                            dataList.removeChild(dataList.lastChild);
+                        }
+                        
+                        updateBreathChart(data.timestamp, data.value);
+                        break;
+                        
+                    case 'training_complete':
+                        toastr.success(`传感器 ${data.sensor_id} 训练完成，平均值: ${data.average_value.toFixed(2)}`);
+                        
+                        if (trainingTimer) {
+                            clearTimeout(trainingTimer);
+                            trainingTimer = null;
+                        }
+                        stopTrainingCountdown();
+                        
+                        $('#trainingBtn').prop('disabled', false).text('训练模式').data('training', false);
+                        $('#monitoringBtn').prop('disabled', false);
+                        $('#trainingStatus').hide();
+                        
+                        setTimeout(() => {
+                            location.reload();
+                        }, 1000);
+                        break;
+
+                    case 'monitoring_started':
+                        $('#monitoringBtn').text('停止监测').removeClass('btn-success').addClass('btn-danger');
+                        $('#monitoringBtn').data('monitoring', true);
+                        toastr.info('监测已开始');
+                        break;
+
+                    case 'monitoring_stopped':
+                        $('#monitoringBtn').text('监测模式').removeClass('btn-danger').addClass('btn-success');
+                        $('#monitoringBtn').data('monitoring', false);
+                        toastr.info('已停止监测');
+                        break;
+
+                    case 'anomaly_detected':
+                        const alertDiv = document.createElement('div');
+                        alertDiv.className = 'anomaly-alert';
+                        alertDiv.innerHTML = `
+                            <strong>异常警告!</strong><br>
+                            传感器 ${data.sensor_id} 检测到连续异常<br>
+                            异常值: ${data.values.join(', ')}<br>
+                            基准值: ${data.average.toFixed(2)}
+                        `;
+                        document.body.appendChild(alertDiv);
+                        
+                        setTimeout(() => {
+                            alertDiv.style.opacity = '0';
+                            setTimeout(() => alertDiv.remove(), 500);
+                        }, 5000);
+                        break;
+                        
+                    case 'error_message':
+                        toastr.error(data.message);
+                        break;
+                }
+            };
+            
+        } catch (error) {
+            console.error('WebSocket初始化失败:', error);
+            toastr.error('WebSocket连接失败，请刷新页面重试');
+        }
+    }
+    
+    // 🔧 修复：自动扫描串口函数
+    function autoRefreshPorts() {
+        console.log('🔄 自动扫描串口...');
+        $.get('/scan-ports/', function(data) {
+            const portsList = $('#availablePorts');
+            portsList.empty();
+            
+            if (data.ports.length > 0) {
+                $('#portsList').show();
+                data.ports.forEach(port => {
+                    const item = $(`
+                        <a href="#" class="list-group-item list-group-item-action">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">${port}</h6>
+                                <small class="text-muted">可用</small>
+                            </div>
+                            <small>点击选择此串口</small>
+                        </a>
+                    `);
+                    item.click(function(e) {
+                        e.preventDefault();
+                        $('.list-group-item').removeClass('active');
+                        item.addClass('active');
+                        $('#availablePorts').data('selectedPort', port);
+                        // 🔧 修复：选择串口后启用"打开串口"按钮
+                        $('#openPortBtn').prop('disabled', false);
+                    });
+                    portsList.append(item);
+                });
+                toastr.success(`自动发现 ${data.ports.length} 个可用串口`);
+            } else {
+                $('#portsList').hide();
+                $('#openPortBtn').prop('disabled', true);
+                toastr.warning('未发现可用串口');
+            }
+        }).fail(function() {
+            toastr.error('扫描串口失败，请检查系统权限');
+        });
+    }
+
+    function sendWebSocketCommand(command) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            toastr.error('WebSocket未连接，请刷新页面重试');
+            return false;
+        }
+        try {
+            ws.send(JSON.stringify(command));
+            return true;
+        } catch (e) {
+            toastr.error(`命令发送失败: ${e.message}`);
+            setTimeout(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify(command));
+                }
+            }, 1000);
+            return false;
+        }
+    }
+
     // 初始化呼吸数据图表
     function initBreathChart() {
         const ctx = document.getElementById('breathChart').getContext('2d');
@@ -190,7 +405,7 @@
                     }
                 },
                 animation: {
-                    duration: 200 // 快速动画
+                    duration: 200
                 },
                 interaction: {
                     intersect: false,
@@ -200,28 +415,23 @@
         });
     }
 
-    // 更新图表数据的函数
     function updateBreathChart(timestamp, value) {
         const timeStr = new Date(timestamp).toLocaleTimeString();
         
-        // 添加新数据点
         chartLabels.push(timeStr);
         chartData.push(value);
         
-        // 保持最大50个数据点
         const maxPoints = 50;
         if (chartData.length > maxPoints) {
             chartData.shift();
             chartLabels.shift();
         }
         
-        // 更新图表
         breathChart.data.labels = chartLabels;
         breathChart.data.datasets[0].data = chartData;
-        breathChart.update('none'); // 不使用动画以提高性能
+        breathChart.update('none');
     }
 
-    // 启动训练倒计时
     function startTrainingCountdown() {
         let remainingTime = 60;
         const progressBar = document.getElementById('trainingProgress');
@@ -241,7 +451,6 @@
         }, 1000);
     }
 
-    // 停止训练倒计时
     function stopTrainingCountdown() {
         if (trainingCountdownTimer) {
             clearInterval(trainingCountdownTimer);
@@ -249,201 +458,21 @@
         }
     }
 
-    // 初始化图表
-    initBreathChart();
-    
-    // WebSocket连接
-    const ws = new WebSocket('ws://' + window.location.host + '/ws/radar/');
-    let portOpened = false;
-
-    function sendWebSocketCommand(command) {
-        if (ws.readyState !== WebSocket.OPEN) {
-            toastr.error('WebSocket未连接，请刷新页面重试');
-            return false;
-        }
-        try {
-            ws.send(JSON.stringify(command));
-            return true;
-        } catch (e) {
-            toastr.error(`命令发送失败: ${e.message}`);
-            setTimeout(() => {
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify(command));
-                }
-            }, 1000);
-            return false;
-        }
-    }
-
-    // 连接状态更新
-    ws.onopen = function() {
-        document.getElementById('statusIndicator').className = 'connected';
-        document.getElementById('connectionStatus').textContent = '连接状态：已连接';
-        toastr.success('WebSocket连接成功');
-    };
-
-    ws.onclose = function() {
-        document.getElementById('statusIndicator').className = 'disconnected';
-        document.getElementById('connectionStatus').textContent = '连接状态：已断开';
-        toastr.error('WebSocket连接断开');
-    };
-    
-    // 处理收到的消息
-    ws.onmessage = function(event) {
-        const data = JSON.parse(event.data);
-    
-        switch(data.type) {
-            case 'training_started':
-                toastr.info(data.message);
-                $('#trainingStatus').show();
-                startTrainingCountdown(); // 启动倒计时
-                
-                // 设置60秒自动结束定时器
-                trainingTimer = setTimeout(() => {
-                    // 发送停止训练命令
-                    sendWebSocketCommand({ command: 'stop_training' });
-                    toastr.warning('训练时间已到，自动结束训练');
-                }, 60000); // 60秒
-                break;
-
-            case 'radar_data':
-                // 更新实时数据列表
-                const dataList = document.getElementById('realtime-data');
-                
-                // 清除"等待数据..."提示
-                if (dataList.children.length === 1 && dataList.children[0].textContent === '等待数据...') {
-                    dataList.innerHTML = '';
-                }
-                
-                const newItem = document.createElement('li');
-                newItem.className = 'list-group-item d-flex justify-content-between align-items-center';
-                
-                const timeStr = new Date(data.timestamp).toLocaleTimeString();
-                newItem.innerHTML = `
-                    <div>
-                        <strong>传感器${data.sensor_id}</strong>: ${data.value} 
-                        <small class="text-muted">(${data.hex_value})</small>
-                    </div>
-                    <small class="text-muted">${timeStr}</small>
-                `;
-                
-                dataList.insertBefore(newItem, dataList.firstChild); // 添加到顶部
-
-                // 更新传感器最新值显示
-                const sensorIdNum = data.sensor_id.replace(/\D/g, ''); // 提取数字
-                const latestValueElem = document.getElementById(`latest-value-${sensorIdNum}`);
-                if (latestValueElem) {
-                    latestValueElem.textContent = data.value;
-                    latestValueElem.className = 'badge badge-success'; // 更新样式表示有新数据
-                    
-                    // 3秒后恢复原样式
-                    setTimeout(() => {
-                        latestValueElem.className = 'badge badge-info';
-                    }, 3000);
-                }
-
-                // 限制列表长度为最新20条
-                while (dataList.children.length > 20) {
-                    dataList.removeChild(dataList.lastChild);
-                }
-                
-                // 更新呼吸数据图表（关键修复）
-                updateBreathChart(data.timestamp, data.value);
-                break;
-                
-            case 'training_complete':
-                toastr.success(`传感器 ${data.sensor_id} 训练完成，平均值: ${data.average_value.toFixed(2)}`);
-                
-                // 清除定时器
-                if (trainingTimer) {
-                    clearTimeout(trainingTimer);
-                    trainingTimer = null;
-                }
-                stopTrainingCountdown();
-                
-                // 重新启用按钮
-                $('#trainingBtn').prop('disabled', false).text('训练模式').data('training', false);
-                $('#monitoringBtn').prop('disabled', false);
-                $('#trainingStatus').hide();
-                
-                // 刷新页面显示最新训练结果
-                setTimeout(() => {
-                    location.reload();
-                }, 1000);
-                break;
-
-            case 'monitoring_started':
-                $('#monitoringBtn').text('停止监测').removeClass('btn-success').addClass('btn-danger');
-                $('#monitoringBtn').data('monitoring', true);
-                toastr.info('监测已开始');
-                break;
-
-            case 'monitoring_stopped':
-                $('#monitoringBtn').text('监测模式').removeClass('btn-danger').addClass('btn-success');
-                $('#monitoringBtn').data('monitoring', false);
-                toastr.info('已停止监测');
-                break;
-
-            case 'anomaly_detected':
-                const alertDiv = document.createElement('div');
-                alertDiv.className = 'anomaly-alert';
-                alertDiv.innerHTML = `
-                    <strong>异常警告!</strong><br>
-                    传感器 ${data.sensor_id} 检测到连续异常<br>
-                    异常值: ${data.values.join(', ')}<br>
-                    基准值: ${data.average.toFixed(2)}
-                `;
-                document.body.appendChild(alertDiv);
-                
-                setTimeout(() => {
-                    alertDiv.style.opacity = '0';
-                    setTimeout(() => alertDiv.remove(), 500);
-                }, 5000);
-                break;
-                
-            case 'error_message':
-                toastr.error(data.message);
-                break;
-        }
-    };
-    
-    // 按钮事件绑定
+    // 🔧 修复：页面初始化逻辑
     $(document).ready(function() {
+        // 1. 首先初始化图表
+        initBreathChart();
+        
+        // 2. 初始化WebSocket连接
+        initWebSocket();
+        
+        // 3. 检测设备类型并应用不同策略
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        console.log(`📱 设备类型: ${isMobile ? '移动端' : '桌面端'}`);
+        
         // 刷新串口按钮点击事件
         $('#refreshPortsBtn').click(function() {
-            toastr.info('正在刷新串口...');
-            $.get('/scan-ports/', function(data) {
-                const portsList = $('#availablePorts');
-                portsList.empty();
-                
-                if (data.ports.length > 0) {
-                    $('#portsList').show();
-                    data.ports.forEach(port => {
-                        const item = $(`
-                            <a href="#" class="list-group-item list-group-item-action">
-                                <div class="d-flex w-100 justify-content-between">
-                                    <h6 class="mb-1">${port}</h6>
-                                    <small class="text-muted">可用</small>
-                                </div>
-                                <small>点击选择此串口</small>
-                            </a>
-                        `);
-                        item.click(function(e) {
-                            e.preventDefault();
-                            $('.list-group-item').removeClass('active');
-                            item.addClass('active');
-                            $('#availablePorts').data('selectedPort', port);
-                        });
-                        portsList.append(item);
-                    });
-                    toastr.success(`发现 ${data.ports.length} 个可用串口`);
-                } else {
-                    $('#portsList').hide();
-                    toastr.warning('未发现可用串口');
-                }
-            }).fail(function() {
-                toastr.error('扫描串口失败，请检查系统权限');
-            });
+            autoRefreshPorts();
         });
         
         // 打开串口按钮
@@ -460,6 +489,7 @@
                     toastr.success(`串口 ${selectedPort} 已打开`);
                     $('#portStatus').text(`已连接: ${selectedPort}`);
                     portOpened = true;
+                    // 🔧 修复：启用模式按钮
                     $('#trainingBtn').prop('disabled', false);
                     $('#monitoringBtn').prop('disabled', false);
                 } else {
@@ -479,10 +509,8 @@
             
             const btn = $(this);
             if (btn.data('training')) {
-                // 手动停止训练
                 sendWebSocketCommand({ command: 'stop_training' });
                 
-                // 清除定时器
                 if (trainingTimer) {
                     clearTimeout(trainingTimer);
                     trainingTimer = null;
@@ -495,12 +523,10 @@
                 return;
             }
             
-            // 开始训练
             sendWebSocketCommand({ command: 'start_training' });
             btn.prop('disabled', true).data('training', true).text('停止训练');
             $('#monitoringBtn').prop('disabled', true);
             
-            // 清空图表数据，准备接收新的训练数据
             chartData = [];
             chartLabels = [];
             breathChart.data.labels = chartLabels;
@@ -521,7 +547,6 @@
             } else {
                 sendWebSocketCommand({ command: 'start_monitoring' });
                 
-                // 清空图表数据，准备接收新的监测数据
                 chartData = [];
                 chartLabels = [];
                 breathChart.data.labels = chartLabels;
@@ -529,9 +554,6 @@
                 breathChart.update();
             }
         });
-        
-        // 初始加载时刷新串口
-        $('#refreshPortsBtn').click();
     });
 </script>
-{% endblock %}
+{% endblock %
