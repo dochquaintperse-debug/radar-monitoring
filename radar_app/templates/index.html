@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 
 {% block content %}
-<!-- 保持现有的HTML内容不变 -->
 <div class="row">
     <div class="col-md-8">
         <div class="card">
@@ -44,7 +43,6 @@
                     <button id="monitoringBtn" class="btn btn-success btn-lg" disabled>监测模式</button>
                 </div>
                 
-                <!-- 其余HTML保持不变... -->
                 <!-- 训练状态显示 -->
                 <div id="trainingStatus" style="display: none; margin-bottom: 20px;">
                     <div class="alert alert-warning" role="alert">
@@ -136,15 +134,15 @@
     let trainingTimer = null;
     let trainingCountdownTimer = null;
     let portOpened = false;
-    let ws = null; // 关键：声明WebSocket变量
+    let ws = null;
     
     // 🔧 关键修复：智能WebSocket连接
     function initWebSocket() {
         // 自动检测协议（HTTP/HTTPS对应ws/wss）
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws/radar/`;
+        const wsUrl = protocol + '//' + window.location.host + '/ws/radar/';
         
-        console.log(`🔗 尝试连接WebSocket: ${wsUrl}`);
+        console.log('🔗 尝试连接WebSocket: ' + wsUrl);
         
         try {
             ws = new WebSocket(wsUrl);
@@ -155,7 +153,7 @@
                 toastr.success('WebSocket连接成功');
                 
                 // 🔧 修复：连接成功后立即自动扫描串口
-                setTimeout(() => {
+                setTimeout(function() {
                     autoRefreshPorts();
                 }, 1000);
             };
@@ -168,7 +166,6 @@
                     toastr.warning('WebSocket连接已关闭');
                 } else {
                     toastr.error('WebSocket连接意外断开，3秒后重试...');
-                    // 自动重连
                     setTimeout(initWebSocket, 3000);
                 }
             };
@@ -187,7 +184,7 @@
                         $('#trainingStatus').show();
                         startTrainingCountdown();
                         
-                        trainingTimer = setTimeout(() => {
+                        trainingTimer = setTimeout(function() {
                             sendWebSocketCommand({ command: 'stop_training' });
                             toastr.warning('训练时间已到，自动结束训练');
                         }, 60000);
@@ -204,23 +201,22 @@
                         newItem.className = 'list-group-item d-flex justify-content-between align-items-center';
                         
                         const timeStr = new Date(data.timestamp).toLocaleTimeString();
-                        newItem.innerHTML = `
-                            <div>
-                                <strong>传感器${data.sensor_id}</strong>: ${data.value} 
-                                <small class="text-muted">(${data.hex_value})</small>
-                            </div>
-                            <small class="text-muted">${timeStr}</small>
-                        `;
+                        // 🔧 关键修复：避免模板语法冲突，使用字符串拼接
+                        newItem.innerHTML = '<div>' +
+                            '<strong>传感器' + data.sensor_id + '</strong>: ' + data.value + ' ' +
+                            '<small class="text-muted">(' + data.hex_value + ')</small>' +
+                            '</div>' +
+                            '<small class="text-muted">' + timeStr + '</small>';
                         
                         dataList.insertBefore(newItem, dataList.firstChild);
 
                         const sensorIdNum = data.sensor_id.replace(/\D/g, '');
-                        const latestValueElem = document.getElementById(`latest-value-${sensorIdNum}`);
+                        const latestValueElem = document.getElementById('latest-value-' + sensorIdNum);
                         if (latestValueElem) {
                             latestValueElem.textContent = data.value;
                             latestValueElem.className = 'badge badge-success';
                             
-                            setTimeout(() => {
+                            setTimeout(function() {
                                 latestValueElem.className = 'badge badge-info';
                             }, 3000);
                         }
@@ -233,7 +229,7 @@
                         break;
                         
                     case 'training_complete':
-                        toastr.success(`传感器 ${data.sensor_id} 训练完成，平均值: ${data.average_value.toFixed(2)}`);
+                        toastr.success('传感器 ' + data.sensor_id + ' 训练完成，平均值: ' + data.average_value.toFixed(2));
                         
                         if (trainingTimer) {
                             clearTimeout(trainingTimer);
@@ -245,7 +241,7 @@
                         $('#monitoringBtn').prop('disabled', false);
                         $('#trainingStatus').hide();
                         
-                        setTimeout(() => {
+                        setTimeout(function() {
                             location.reload();
                         }, 1000);
                         break;
@@ -265,17 +261,15 @@
                     case 'anomaly_detected':
                         const alertDiv = document.createElement('div');
                         alertDiv.className = 'anomaly-alert';
-                        alertDiv.innerHTML = `
-                            <strong>异常警告!</strong><br>
-                            传感器 ${data.sensor_id} 检测到连续异常<br>
-                            异常值: ${data.values.join(', ')}<br>
-                            基准值: ${data.average.toFixed(2)}
-                        `;
+                        alertDiv.innerHTML = '<strong>异常警告!</strong><br>' +
+                            '传感器 ' + data.sensor_id + ' 检测到连续异常<br>' +
+                            '异常值: ' + data.values.join(', ') + '<br>' +
+                            '基准值: ' + data.average.toFixed(2);
                         document.body.appendChild(alertDiv);
                         
-                        setTimeout(() => {
+                        setTimeout(function() {
                             alertDiv.style.opacity = '0';
-                            setTimeout(() => alertDiv.remove(), 500);
+                            setTimeout(function() { alertDiv.remove(); }, 500);
                         }, 5000);
                         break;
                         
@@ -300,16 +294,15 @@
             
             if (data.ports.length > 0) {
                 $('#portsList').show();
-                data.ports.forEach(port => {
-                    const item = $(`
-                        <a href="#" class="list-group-item list-group-item-action">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">${port}</h6>
-                                <small class="text-muted">可用</small>
-                            </div>
-                            <small>点击选择此串口</small>
-                        </a>
-                    `);
+                data.ports.forEach(function(port) {
+                    const item = $('<a href="#" class="list-group-item list-group-item-action">' +
+                        '<div class="d-flex w-100 justify-content-between">' +
+                        '<h6 class="mb-1">' + port + '</h6>' +
+                        '<small class="text-muted">可用</small>' +
+                        '</div>' +
+                        '<small>点击选择此串口</small>' +
+                        '</a>');
+                        
                     item.click(function(e) {
                         e.preventDefault();
                         $('.list-group-item').removeClass('active');
@@ -320,7 +313,7 @@
                     });
                     portsList.append(item);
                 });
-                toastr.success(`自动发现 ${data.ports.length} 个可用串口`);
+                toastr.success('自动发现 ' + data.ports.length + ' 个可用串口');
             } else {
                 $('#portsList').hide();
                 $('#openPortBtn').prop('disabled', true);
@@ -340,8 +333,8 @@
             ws.send(JSON.stringify(command));
             return true;
         } catch (e) {
-            toastr.error(`命令发送失败: ${e.message}`);
-            setTimeout(() => {
+            toastr.error('命令发送失败: ' + e.message);
+            setTimeout(function() {
                 if (ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify(command));
                 }
@@ -437,12 +430,12 @@
         const progressBar = document.getElementById('trainingProgress');
         const countdownSpan = document.getElementById('trainingCountdown');
         
-        trainingCountdownTimer = setInterval(() => {
+        trainingCountdownTimer = setInterval(function() {
             remainingTime--;
             const progress = ((60 - remainingTime) / 60) * 100;
             
-            progressBar.style.width = `${progress}%`;
-            countdownSpan.textContent = `剩余时间: ${remainingTime}秒`;
+            progressBar.style.width = progress + '%';
+            countdownSpan.textContent = '剩余时间: ' + remainingTime + '秒';
             
             if (remainingTime <= 0) {
                 clearInterval(trainingCountdownTimer);
@@ -468,7 +461,7 @@
         
         // 3. 检测设备类型并应用不同策略
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        console.log(`📱 设备类型: ${isMobile ? '移动端' : '桌面端'}`);
+        console.log('📱 设备类型: ' + (isMobile ? '移动端' : '桌面端'));
         
         // 刷新串口按钮点击事件
         $('#refreshPortsBtn').click(function() {
@@ -483,17 +476,17 @@
                 return;
             }
             
-            toastr.info(`正在打开串口 ${selectedPort}...`);
+            toastr.info('正在打开串口 ' + selectedPort + '...');
             $.post('/open-port/', JSON.stringify({port: selectedPort}), function(data) {
                 if (data.success) {
-                    toastr.success(`串口 ${selectedPort} 已打开`);
-                    $('#portStatus').text(`已连接: ${selectedPort}`);
+                    toastr.success('串口 ' + selectedPort + ' 已打开');
+                    $('#portStatus').text('已连接: ' + selectedPort);
                     portOpened = true;
                     // 🔧 修复：启用模式按钮
                     $('#trainingBtn').prop('disabled', false);
                     $('#monitoringBtn').prop('disabled', false);
                 } else {
-                    toastr.error(`打开串口失败: ${data.error || '未知错误'}`);
+                    toastr.error('打开串口失败: ' + (data.error || '未知错误'));
                 }
             }).fail(function() {
                 toastr.error('串口连接请求失败');
@@ -556,4 +549,4 @@
         });
     });
 </script>
-{% endblock %
+{% endblock %}
