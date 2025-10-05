@@ -16,8 +16,10 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from radar_app import views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('radar_app.urls')),
+    path('api/radar-data/', views.receive_radar_data, name='api_receive_radar_data'),  # 新增API路由
 ]
