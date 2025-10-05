@@ -1,16 +1,24 @@
-# radar_app/views.py
 from django.shortcuts import render
 from .models import RadarSensor, TrainingResult, RadarData
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.utils import timezone
+from datetime import timedelta
 import json
+
+# 全局训练状态（云端环境使用）
+CLOUD_TRAINING_STATE = {
+    'is_training': False,
+    'training_data': [],
+    'start_time': None,
+    'sensor_id': None
+}
 
 @csrf_exempt
 def receive_radar_data(request):
-    """接收本地桥接器发送的雷达数据 - 主要API端点"""
+    """接收本地桥接器发送的雷达数据"""
     if request.method == 'POST':
         try:
-            # 解析JSON数据
             data = json.loads(request.body)
             print(f"✅ 接收到API数据: {data}")
             
@@ -25,7 +33,24 @@ def receive_radar_data(request):
                 value=data['value']
             )
             
-            # 发送到WebSocket（如果可用）
+            # 云端训练逻辑
+            global CLOUD_TRAINING_STATE
+            if CLOUD_TRAINING_STATE['is_training']:
+                if not CLOUD_TRAINING_STATE['sensor_id']:
+                    CLOUD_TRAINING_STATE['sensor_id'] = data['sensor_id']
+                    CLOUD_TRAINING_STATE['start_time'] = timezone.now()
+                    print(f"🎯 训练锁定传感器: {data['sensor_id']}")
+                
+                if CLOUD_TRAINING_STATE['sensor_id'] == data['sensor_id']:
+                    CLOUD_TRAINING_STATE['training_data'].append(data['value'])
+                    print(f"📊 训练数据收集: {len(CLOUD_TRAINING_STATE['training_data'])} 个数据点")
+                    
+                    # 检查训练时间（60秒）
+                    if CLOUD_TRAINING_STATE['start_time'] and \
+                       (timezone.now() - CLOUD_TRAINING_STATE['start_time']).seconds >= 60:
+                        _complete_cloud_training(sensor)
+            
+            # 发送到WebSocket
             try:
                 from channels.layers import get_channel_layer
                 from asgiref.sync import async_to_sync
@@ -46,14 +71,11 @@ def receive_radar_data(request):
             
             return JsonResponse({
                 'success': True,
-                'message': '数据接收成功'
+                'message': '数据接收成功',
+                'training_active': CLOUD_TRAINING_STATE['is_training'],
+                'training_count': len(CLOUD_TRAINING_STATE['training_data'])
             })
             
-        except json.JSONDecodeError:
-            return JsonResponse({
-                'success': False, 
-                'error': '无效的JSON格式'
-            }, status=400)
         except Exception as e:
             print(f"❌ API错误: {e}")
             return JsonResponse({
@@ -61,16 +83,95 @@ def receive_radar_data(request):
                 'error': str(e)
             }, status=500)
     
-    # GET请求返回API信息
     return JsonResponse({
         'api': 'radar-data',
         'method': 'POST',
-        'status': 'ready'
+        'status': 'ready',
+        'training_active': CLOUD_TRAINING_STATE['is_training']
     })
 
+def _complete_cloud_training(sensor):
+    """完成云端训练"""
+    global CLOUD_TRAINING_STATE
+    
+    if CLOUD_TRAINING_STATE['training_data']:
+        avg_value = sum(CLOUD_TRAINING_STATE['training_data']) / len(CLOUD_TRAINING_STATE['training_data'])
+        
+        # 保存训练结果
+        training_result = TrainingResult.objects.create(
+            sensor=sensor,
+            average_value=avg_value
+        )
+        
+        print(f"🎉 云端训练完成: 传感器={sensor.name}, 平均值={avg_value:.2f}")
+        
+        # 发送训练完成消息
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                "radar_group",
+                {
+                    "type": "training_complete",
+                    "sensor_id": sensor.name,
+                    "average_value": avg_value
+                }
+            )
+        except Exception as e:
+            print(f"发送训练完成消息失败: {e}")
+    
+    # 重置训练状态
+    CLOUD_TRAINING_STATE = {
+        'is_training': False,
+        'training_data': [],
+        'start_time': None,
+        'sensor_id': None
+    }
+
+@csrf_exempt
+def start_cloud_training(request):
+    """启动云端训练模式"""
+    if request.method == 'POST':
+        global CLOUD_TRAINING_STATE
+        
+        # 重置并启动训练
+        CLOUD_TRAINING_STATE = {
+            'is_training': True,
+            'training_data': [],
+            'start_time': None,
+            'sensor_id': None
+        }
+        
+        print("🚀 云端训练模式已启动")
+        
+        return JsonResponse({
+            'success': True,
+            'message': '云端训练模式已启动'
+        })
+    
+    return JsonResponse({'success': False})
+
+@csrf_exempt
+def stop_cloud_training(request):
+    """停止云端训练模式"""
+    if request.method == 'POST':
+        global CLOUD_TRAINING_STATE
+        CLOUD_TRAINING_STATE['is_training'] = False
+        
+        print("⏹️ 云端训练模式已停止")
+        
+        return JsonResponse({
+            'success': True,
+            'message': '云端训练模式已停止'
+        })
+    
+    return JsonResponse({'success': False})
+
+# 其他视图函数保持不变
 @csrf_exempt
 def scan_ports(request):
-    """扫描串口 - 云端环境返回提示信息"""
     if request.method == 'GET':
         return JsonResponse({
             'ports': [],
@@ -82,7 +183,6 @@ def scan_ports(request):
 
 @csrf_exempt
 def open_port(request):
-    """打开串口 - 云端环境不支持"""
     if request.method == 'POST':
         return JsonResponse({
             'success': False, 
@@ -92,7 +192,6 @@ def open_port(request):
 
 @csrf_exempt
 def close_port(request):
-    """关闭串口 - 云端环境不支持"""
     if request.method == 'POST':
         return JsonResponse({
             'success': False,
@@ -102,7 +201,6 @@ def close_port(request):
 
 @csrf_exempt
 def restart_bridge(request):
-    """重启桥接器 - 云端环境不支持"""
     if request.method == 'POST':
         return JsonResponse({
             'success': False,

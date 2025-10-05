@@ -1,29 +1,95 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
-from asgiref.sync import sync_to_async, async_to_sync
-from .mqtt_client import get_mqtt_client
+from asgiref.sync import sync_to_async
+import os
+
 class RadarConsumer(AsyncWebsocketConsumer):
     
     async def connect(self):
         await self.channel_layer.group_add("radar_group", self.channel_name)
         await self.accept()
+        print("WebSocket连接已建立")
         
     async def disconnect(self, close_code):
         await self.channel_layer.group_discard("radar_group", self.channel_name)
+        print("WebSocket连接已断开")
+
     async def receive(self, text_data):
-        text_data_json = json.loads(text_data)
-        command = text_data_json.get('command')
-        print(f"收到命令: {command}")
-        
-        # 获取MQTT客户端实例
+        try:
+            text_data_json = json.loads(text_data)
+            command = text_data_json.get('command')
+            print(f"收到WebSocket命令: {command}")
+            
+            # 检测环境：云端还是本地
+            is_cloud = os.environ.get('RENDER') is not None
+            
+            if is_cloud:
+                # 云端环境：直接处理命令，不依赖串口桥
+                await self._handle_cloud_command(command)
+            else:
+                # 本地环境：使用MQTT客户端和串口桥
+                await self._handle_local_command(command)
+                
+        except Exception as e:
+            print(f"WebSocket命令处理错误: {e}")
+            await self.send(text_data=json.dumps({
+                'type': 'error_message',
+                'message': f'命令处理失败: {str(e)}'
+            }))
+
+    async def _handle_cloud_command(self, command):
+        """云端环境命令处理"""
+        if command == 'start_training':
+            # 云端训练模式：等待本地桥接器数据
+            await self.send(text_data=json.dumps({
+                'type': 'training_started',
+                'message': '训练模式已启动，等待本地桥接器数据...'
+            }))
+            
+            # 广播训练开始消息
+            await self.channel_layer.group_send(
+                "radar_group",
+                {
+                    "type": "training_started",
+                    "message": "云端训练模式已启动"
+                }
+            )
+            
+        elif command == 'stop_training':
+            await self.send(text_data=json.dumps({
+                'type': 'training_stopped', 
+                'message': '训练已手动停止'
+            }))
+            
+        elif command == 'start_monitoring':
+            # 检查是否有训练结果
+            has_training = await self._check_training_results()
+            if has_training:
+                await self.send(text_data=json.dumps({
+                    'type': 'monitoring_started',
+                    'message': '监测模式已启动'
+                }))
+            else:
+                await self.send(text_data=json.dumps({
+                    'type': 'error_message',
+                    'message': '请先完成训练再开始监测'
+                }))
+                
+        elif command == 'stop_monitoring':
+            await self.send(text_data=json.dumps({
+                'type': 'monitoring_stopped',
+                'message': '监测模式已停止'
+            }))
+
+    async def _handle_local_command(self, command):
+        """本地环境命令处理（原有逻辑）"""
+        from .mqtt_client import get_mqtt_client
         mqtt_client = get_mqtt_client()
         
         if command == 'start_training':
-            # 启动训练模式
             mqtt_client.start_training_mode()
             
         elif command == 'stop_training':
-            # 手动停止训练模式（关键新增）
             mqtt_client.stop_training_mode()
             await self.send(text_data=json.dumps({
                 'type': 'training_stopped',
@@ -32,25 +98,17 @@ class RadarConsumer(AsyncWebsocketConsumer):
             
         elif command == 'start_monitoring':
             mqtt_client.start_monitoring_mode()
-            await self.send(text_data=json.dumps({
-                'type': 'monitoring_started',
-                'message': '监测模式已启动'
-            }))
             
         elif command == 'stop_monitoring':
             mqtt_client.stop_monitoring_mode()
-            await self.send(text_data=json.dumps({
-                'type': 'monitoring_stopped',
-                'message': '监测模式已停止'
-            }))
-    # 处理传感器发现消息
-    async def sensor_discovered(self, event):
-        await self.send(text_data=json.dumps({
-            'type': 'sensor_discovered',
-            'sensor_id': event['sensor_id'],
-            'sensor_name': event['sensor_name']
-        }))
-    # 处理雷达数据消息
+
+    @sync_to_async
+    def _check_training_results(self):
+        """检查是否存在训练结果"""
+        from .models import TrainingResult
+        return TrainingResult.objects.exists()
+
+    # WebSocket消息处理器（保持不变）
     async def radar_data(self, event):
         await self.send(text_data=json.dumps({
             'type': 'radar_data',
@@ -59,41 +117,41 @@ class RadarConsumer(AsyncWebsocketConsumer):
             'hex_value': event.get('hex_value', ''),
             'timestamp': event['timestamp']
         }))
-    # 处理训练开始消息
+
     async def training_started(self, event):
         await self.send(text_data=json.dumps({
             'type': 'training_started',
             'message': event['message']
         }))
-    # 处理训练完成消息
+
     async def training_complete(self, event):
         await self.send(text_data=json.dumps({
             'type': 'training_complete',
             'sensor_id': event['sensor_id'],
             'average_value': event['average_value']
         }))
-    # 新增：处理训练停止消息
+
     async def training_stopped(self, event):
         await self.send(text_data=json.dumps({
             'type': 'training_stopped',
             'message': event.get('message', '训练已停止'),
             'sensor_id': event.get('sensor_id')
         }))
-    # 处理监测开始消息
+
     async def monitoring_started(self, event):
         await self.send(text_data=json.dumps({
             'type': 'monitoring_started',
             'message': event.get('message', '监测模式已启动'),
             'sensor_id': event.get('sensor_id')
         }))
-    # 处理监测停止消息
+
     async def monitoring_stopped(self, event):
         await self.send(text_data=json.dumps({
             'type': 'monitoring_stopped',
             'message': event.get('message', '监测模式已停止'),
             'sensor_id': event.get('sensor_id')
         }))
-    # 处理异常检测消息
+
     async def anomaly_detected(self, event):
         await self.send(text_data=json.dumps({
             'type': 'anomaly_detected',
@@ -101,7 +159,7 @@ class RadarConsumer(AsyncWebsocketConsumer):
             'values': event['values'],
             'average': event['average']
         }))
-    # 处理错误消息
+
     async def error_message(self, event):
         await self.send(text_data=json.dumps({
             'type': 'error_message',
