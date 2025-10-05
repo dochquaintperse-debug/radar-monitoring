@@ -287,40 +287,35 @@
     
     // 🔧 修复：自动扫描串口函数
     function autoRefreshPorts() {
-        console.log('🔄 自动扫描串口...');
+        console.log('🔄 扫描串口...');
         $.get('/scan-ports/', function(data) {
-            const portsList = $('#availablePorts');
-            portsList.empty();
-            
-            if (data.ports.length > 0) {
-                $('#portsList').show();
-                data.ports.forEach(function(port) {
-                    const item = $('<a href="#" class="list-group-item list-group-item-action">' +
-                        '<div class="d-flex w-100 justify-content-between">' +
-                        '<h6 class="mb-1">' + port + '</h6>' +
-                        '<small class="text-muted">可用</small>' +
-                        '</div>' +
-                        '<small>点击选择此串口</small>' +
-                        '</a>');
-                        
-                    item.click(function(e) {
-                        e.preventDefault();
-                        $('.list-group-item').removeClass('active');
-                        item.addClass('active');
-                        $('#availablePorts').data('selectedPort', port);
-                        // 🔧 修复：选择串口后启用"打开串口"按钮
-                        $('#openPortBtn').prop('disabled', false);
-                    });
-                    portsList.append(item);
-                });
-                toastr.success('自动发现 ' + data.ports.length + ' 个可用串口');
-            } else {
+            if (data.bridge_required) {
+                // 显示桥接器提示
                 $('#portsList').hide();
                 $('#openPortBtn').prop('disabled', true);
-                toastr.warning('未发现可用串口');
+                
+                // 添加提示信息
+                if (!$('#bridgeNotice').length) {
+                    const notice = $(`
+                        <div id="bridgeNotice" class="alert alert-info">
+                            <h5><i class="fas fa-info-circle"></i> 云端部署说明</h5>
+                            <p>当前运行在云端环境，无法直接访问本地串口设备。</p>
+                            <p><strong>解决方案：</strong></p>
+                            <ol>
+                                <li>在您的本地电脑下载并运行桥接器程序</li>
+                                <li>桥接器会自动将本地雷达数据发送到此云端界面</li>
+                                <li>您可以在此界面查看实时数据和训练结果</li>
+                            </ol>
+                            <p><code>python local_bridge.py</code></p>
+                        </div>
+                    `);
+                    $('#portsList').parent().append(notice);
+                }
+                
+                toastr.info('云端环境需要本地桥接器支持');
+            } else {
+                // 原有逻辑...
             }
-        }).fail(function() {
-            toastr.error('扫描串口失败，请检查系统权限');
         });
     }
 

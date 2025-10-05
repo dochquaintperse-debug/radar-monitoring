@@ -8,6 +8,7 @@ from .serial_scanner import SerialScanner
 import threading
 import json
 from . import serial_bridge
+from .models import RadarSensor, RadarData, TrainingResult
 
 # 全局桥接器实例
 bridge_instance = None
@@ -94,6 +95,55 @@ def close_port(request):
         bridge_instance.stop()
         return JsonResponse({'success': True})
     return JsonResponse({'success': False})
+
+@csrf_exempt
+def receive_radar_data(request):
+    """接收本地桥接器发送的雷达数据"""
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            
+            # 保存到数据库
+            sensor, created = RadarSensor.objects.get_or_create(
+                name=data['sensor_id'],
+                defaults={"display_name": f"本地雷达_{data['sensor_id'][-4:]}"}
+            )
+            
+            RadarData.objects.create(
+                sensor=sensor,
+                value=data['value']
+            )
+            
+            # 发送到WebSocket
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                "radar_group",
+                {
+                    "type": "radar_data",
+                    "sensor_id": data['sensor_id'],
+                    "value": data['value'],
+                    "hex_value": data.get('hex_value', ''),
+                    "timestamp": data['timestamp']
+                }
+            )
+            
+            return JsonResponse({'success': True})
+            
+        except Exception as e:
+            return JsonResponse({'success': False, 'error': str(e)})
+            
+    return JsonResponse({'success': False})
+# 模拟串口扫描（云端显示说明）
+def scan_ports(request):
+    """云端模拟串口扫描"""
+    return JsonResponse({
+        'ports': [],
+        'message': '云端环境无法直接访问串口，请在本地运行桥接器',
+        'bridge_required': True
+    })
 
 def index(request):
     """主页面"""
