@@ -1,3 +1,4 @@
+# radar_app/consumers.py
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
@@ -24,7 +25,7 @@ class RadarConsumer(AsyncWebsocketConsumer):
             is_cloud = os.environ.get('RENDER') is not None
             
             if is_cloud:
-                # 云端环境：通过HTTP API处理命令
+                # 云端环境：直接调用Django视图函数，不使用HTTP请求
                 await self._handle_cloud_command(command)
             else:
                 # 本地环境：使用MQTT客户端和串口桥
@@ -38,10 +39,10 @@ class RadarConsumer(AsyncWebsocketConsumer):
             }))
 
     async def _handle_cloud_command(self, command):
-        """云端环境命令处理"""
+        """云端环境命令处理 - 直接调用Django视图函数"""
         if command == 'start_training':
-            # 调用云端训练API
-            success = await self._call_cloud_api('start-training')
+            # 直接调用启动训练函数
+            success = await self._start_cloud_training()
             if success:
                 await self.send(text_data=json.dumps({
                     'type': 'training_started',
@@ -50,11 +51,11 @@ class RadarConsumer(AsyncWebsocketConsumer):
             else:
                 await self.send(text_data=json.dumps({
                     'type': 'error_message',
-                    'message': '启动训练失败'
+                    'message': '启动训练失败：无法初始化训练状态'
                 }))
             
         elif command == 'stop_training':
-            success = await self._call_cloud_api('stop-training')
+            success = await self._stop_cloud_training()
             await self.send(text_data=json.dumps({
                 'type': 'training_stopped', 
                 'message': '训练已手动停止'
@@ -80,6 +81,76 @@ class RadarConsumer(AsyncWebsocketConsumer):
                 'message': '监测模式已停止'
             }))
 
+    @sync_to_async
+    def _start_cloud_training(self):
+        """启动云端训练模式 - 直接调用"""
+        try:
+            # 导入视图模块中的全局状态
+            from . import views
+            
+            # 取消之前的定时器
+            if views.CLOUD_TRAINING_STATE['timer']:
+                views.CLOUD_TRAINING_STATE['timer'].cancel()
+            
+            # 重置并启动训练
+            views.CLOUD_TRAINING_STATE = {
+                'is_training': True,
+                'training_data': [],
+                'start_time': None,
+                'sensor_id': None,
+                'timer': None
+            }
+            
+            print("🚀 云端训练模式已启动（WebSocket直接调用）")
+            return True
+            
+        except Exception as e:
+            print(f"启动云端训练失败: {e}")
+            return False
+
+    @sync_to_async
+    def _stop_cloud_training(self):
+        """停止云端训练模式 - 直接调用"""
+        try:
+            from . import views
+            from .models import RadarSensor
+            
+            # 取消定时器
+            if views.CLOUD_TRAINING_STATE['timer']:
+                views.CLOUD_TRAINING_STATE['timer'].cancel()
+                views.CLOUD_TRAINING_STATE['timer'] = None
+            
+            # 如果有数据，完成训练
+            if views.CLOUD_TRAINING_STATE['training_data'] and views.CLOUD_TRAINING_STATE['sensor_id']:
+                try:
+                    sensor = RadarSensor.objects.get(name=views.CLOUD_TRAINING_STATE['sensor_id'])
+                    views._complete_cloud_training(sensor)
+                except RadarSensor.DoesNotExist:
+                    # 直接停止
+                    views.CLOUD_TRAINING_STATE = {
+                        'is_training': False,
+                        'training_data': [],
+                        'start_time': None,
+                        'sensor_id': None,
+                        'timer': None
+                    }
+            else:
+                # 直接停止
+                views.CLOUD_TRAINING_STATE = {
+                    'is_training': False,
+                    'training_data': [],
+                    'start_time': None,
+                    'sensor_id': None,
+                    'timer': None
+                }
+            
+            print("⏹️ 云端训练模式已停止（WebSocket直接调用）")
+            return True
+            
+        except Exception as e:
+            print(f"停止云端训练失败: {e}")
+            return False
+
     async def _handle_local_command(self, command):
         """本地环境命令处理（原有逻辑）"""
         from .mqtt_client import get_mqtt_client
@@ -100,17 +171,6 @@ class RadarConsumer(AsyncWebsocketConsumer):
             
         elif command == 'stop_monitoring':
             mqtt_client.stop_monitoring_mode()
-
-    @sync_to_async
-    def _call_cloud_api(self, endpoint):
-        """调用云端API"""
-        try:
-            import requests
-            response = requests.post(f'http://localhost:8000/api/{endpoint}/', timeout=5)
-            return response.status_code == 200
-        except Exception as e:
-            print(f"调用云端API失败: {e}")
-            return False
 
     @sync_to_async
     def _check_training_results(self):

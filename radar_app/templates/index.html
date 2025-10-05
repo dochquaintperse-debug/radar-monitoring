@@ -178,9 +178,12 @@
             // 消息处理
             ws.onmessage = function(event) {
                 const data = JSON.parse(event.data);
+                console.log('收到WebSocket消息:', data); // 添加调试日志
+                
                 switch(data.type) {
                     case 'training_started':
-                        toastr.info(data.message);
+                        console.log('训练启动成功:', data.message); // 添加调试日志
+                        toastr.success(data.message); // 改为success显示
                         isTraining = true;
                         dataCollectedCount = 0;
                         $('#trainingStatus').show();
@@ -227,7 +230,15 @@
                         break;
                         
                     case 'error_message':
+                        console.error('收到错误消息:', data.message); // 添加调试日志
                         toastr.error(data.message);
+                        
+                        // 如果是训练启动失败，重置按钮状态
+                        if (data.message.includes('启动训练失败')) {
+                            $('#trainingBtn').text('训练模式').data('training', false);
+                            $('#trainingStatus').hide();
+                            $('#monitoringBtn').prop('disabled', false);
+                        }
                         break;
                 }
             };
@@ -493,18 +504,25 @@
             }
             
             if (btn.data('training')) {
+                console.log('发送停止训练命令'); // 调试日志
                 sendWebSocketCommand({ command: 'stop_training' });
                 return;
             }
             
-            sendWebSocketCommand({ command: 'start_training' });
+            console.log('发送启动训练命令'); // 调试日志
+            const success = sendWebSocketCommand({ command: 'start_training' });
             
-            // 清空图表数据
-            chartData = [];
-            chartLabels = [];
-            breathChart.data.labels = chartLabels;
-            breathChart.data.datasets[0].data = chartData;
-            breathChart.update();
+            if (success) {
+                console.log('训练命令发送成功，等待服务器响应...'); // 调试日志
+                // 清空图表数据
+                chartData = [];
+                chartLabels = [];
+                breathChart.data.labels = chartLabels;
+                breathChart.data.datasets[0].data = chartData;
+                breathChart.update();
+            } else {
+                console.error('训练命令发送失败'); // 调试日志
+            }
         });
         
         // 监测模式按钮

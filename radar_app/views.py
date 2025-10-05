@@ -7,6 +7,8 @@ from datetime import timedelta
 import json
 import threading
 import time
+import logging
+logger = logging.getLogger(__name__)
 
 # 全局训练状态（云端环境使用）
 CLOUD_TRAINING_STATE = {
@@ -165,27 +167,38 @@ def start_cloud_training(request):
     if request.method == 'POST':
         global CLOUD_TRAINING_STATE
         
-        # 取消之前的定时器
-        if CLOUD_TRAINING_STATE['timer']:
-            CLOUD_TRAINING_STATE['timer'].cancel()
-        
-        # 重置并启动训练
-        CLOUD_TRAINING_STATE = {
-            'is_training': True,
-            'training_data': [],
-            'start_time': None,
-            'sensor_id': None,
-            'timer': None
-        }
-        
-        print("🚀 云端训练模式已启动")
-        
-        return JsonResponse({
-            'success': True,
-            'message': '云端训练模式已启动'
-        })
+        try:
+            # 取消之前的定时器
+            if CLOUD_TRAINING_STATE['timer']:
+                CLOUD_TRAINING_STATE['timer'].cancel()
+                logger.info("取消了之前的训练定时器")
+            
+            # 重置并启动训练
+            CLOUD_TRAINING_STATE = {
+                'is_training': True,
+                'training_data': [],
+                'start_time': None,
+                'sensor_id': None,
+                'timer': None
+            }
+            
+            logger.info("🚀 云端训练模式已启动")
+            print("🚀 云端训练模式已启动")
+            
+            return JsonResponse({
+                'success': True,
+                'message': '云端训练模式已启动'
+            })
+            
+        except Exception as e:
+            logger.error(f"启动云端训练失败: {e}")
+            print(f"❌ 启动云端训练失败: {e}")
+            return JsonResponse({
+                'success': False,
+                'error': str(e)
+            }, status=500)
     
-    return JsonResponse({'success': False})
+    return JsonResponse({'success': False, 'error': 'Method not allowed'}, status=405)
 
 @csrf_exempt
 def stop_cloud_training(request):
