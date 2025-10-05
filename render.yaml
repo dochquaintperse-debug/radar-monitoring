@@ -2,11 +2,14 @@ services:
   - type: web
     name: radar-monitoring
     env: python
+    region: oregon
+    plan: starter
     buildCommand: |
-      pip install -r requirements.txt &&
-      python manage.py collectstatic --noinput &&
+      python -m pip install --upgrade pip
+      pip install -r requirements.txt
+      python manage.py collectstatic --noinput
       python manage.py migrate
-    startCommand: daphne radar_monitoring.asgi:application --port $PORT --bind 0.0.0.0
+    startCommand: daphne radar_monitoring.asgi:application --port $PORT --bind 0.0.0.0 --verbosity 2
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: radar_monitoring.settings
@@ -20,7 +23,6 @@ services:
         fromDatabase:
           name: radar-db
           property: connectionString
-
 databases:
   - name: radar-db
     databaseName: radar_monitoring
