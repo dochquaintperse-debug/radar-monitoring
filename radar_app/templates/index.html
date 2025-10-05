@@ -23,11 +23,21 @@
                     </div>
                 </div>
                 
+                <!-- 连接状态显示 -->
+                <div class="alert alert-secondary" role="alert">
+                    <div class="d-flex align-items-center">
+                        <div id="connectionStatusIndicator" class="mr-2" style="width: 12px; height: 12px; border-radius: 50%; background-color: #6c757d;"></div>
+                        <span id="connectionStatusText">等待桥接器连接...</span>
+                        <span id="lastDataTime" class="ml-auto text-muted"></span>
+                    </div>
+                </div>
+                
                 <!-- 模式控制按钮 -->
                 <div class="mb-3">
                     <div class="d-flex gap-2">
-                        <button id="trainingBtn" class="btn btn-primary btn-lg">训练模式</button>
-                        <button id="monitoringBtn" class="btn btn-success btn-lg">监测模式</button>
+                        <button id="trainingBtn" class="btn btn-primary btn-lg" disabled>训练模式</button>
+                        <button id="monitoringBtn" class="btn btn-success btn-lg" disabled>监测模式</button>
+                        <small class="text-muted mt-2">* 需要桥接器连接后才能使用</small>
                     </div>
                 </div>
                 
@@ -39,7 +49,10 @@
                             <div id="trainingProgress" class="progress-bar progress-bar-striped progress-bar-animated" 
                                  role="progressbar" style="width: 0%"></div>
                         </div>
-                        <span id="trainingCountdown">剩余时间: 60秒</span>
+                        <div class="d-flex justify-content-between mt-2">
+                            <span id="trainingCountdown">剩余时间: 60秒</span>
+                            <span id="dataCollected">已收集: 0 个数据点</span>
+                        </div>
                     </div>
                 </div>
                 
@@ -125,6 +138,10 @@
     let trainingTimer = null;
     let trainingCountdownTimer = null;
     let ws = null;
+    let isConnected = false;
+    let lastDataTime = null;
+    let dataCollectedCount = 0;
+    let isTraining = false;
     
     // WebSocket连接初始化
     function initWebSocket() {
@@ -138,11 +155,15 @@
             
             ws.onopen = function() {
                 console.log('WebSocket连接成功');
+                document.getElementById('statusIndicator').className = 'connected';
+                document.getElementById('connectionStatus').textContent = '连接状态：WebSocket已连接';
                 toastr.success('系统连接成功');
             };
 
             ws.onclose = function(event) {
                 console.log('WebSocket连接关闭');
+                document.getElementById('statusIndicator').className = 'disconnected';
+                document.getElementById('connectionStatus').textContent = '连接状态：WebSocket已断开';
                 if (!event.wasClean) {
                     toastr.warning('连接断开，3秒后重试...');
                     setTimeout(initWebSocket, 3000);
@@ -160,23 +181,33 @@
                 switch(data.type) {
                     case 'training_started':
                         toastr.info(data.message);
+                        isTraining = true;
+                        dataCollectedCount = 0;
                         $('#trainingStatus').show();
+                        $('#trainingBtn').text('停止训练').data('training', true);
+                        $('#monitoringBtn').prop('disabled', true);
                         startTrainingCountdown();
-                        
-                        trainingTimer = setTimeout(function() {
-                            sendWebSocketCommand({ command: 'stop_training' });
-                            toastr.warning('训练时间已到，自动结束训练');
-                        }, 60000);
                         break;
 
                     case 'radar_data':
+                        updateConnectionStatus(true);
                         updateRealtimeData(data);
                         updateSensorStatus(data);
                         updateBreathChart(data.timestamp, data.value);
+                        
+                        // 训练期间计数
+                        if (isTraining) {
+                            dataCollectedCount++;
+                            $('#dataCollected').text(`已收集: ${dataCollectedCount} 个数据点`);
+                        }
                         break;
                         
                     case 'training_complete':
                         handleTrainingComplete(data);
+                        break;
+
+                    case 'training_stopped':
+                        handleTrainingStopped();
                         break;
 
                     case 'monitoring_started':
@@ -205,6 +236,34 @@
             console.error('WebSocket初始化失败:', error);
             toastr.error('系统连接失败，请刷新页面重试');
         }
+    }
+    
+    // 更新连接状态
+    function updateConnectionStatus(hasData) {
+        if (hasData) {
+            isConnected = true;
+            lastDataTime = new Date();
+            
+            // 更新状态指示器
+            document.getElementById('connectionStatusIndicator').style.backgroundColor = '#28a745'; // 绿色
+            document.getElementById('connectionStatusText').textContent = '桥接器已连接 - 数据正常';
+            document.getElementById('lastDataTime').textContent = `最后数据: ${lastDataTime.toLocaleTimeString()}`;
+            
+            // 启用按钮
+            $('#trainingBtn').prop('disabled', false);
+            $('#monitoringBtn').prop('disabled', false);
+        }
+        
+        // 检查连接超时（30秒无数据认为断开）
+        setTimeout(function() {
+            if (lastDataTime && (new Date() - lastDataTime) > 30000) {
+                isConnected = false;
+                document.getElementById('connectionStatusIndicator').style.backgroundColor = '#dc3545'; // 红色
+                document.getElementById('connectionStatusText').textContent = '桥接器连接超时';
+                $('#trainingBtn').prop('disabled', true);
+                $('#monitoringBtn').prop('disabled', true);
+            }
+        }, 30000);
     }
     
     // 更新实时数据列表
@@ -257,6 +316,7 @@
         }
         stopTrainingCountdown();
         
+        isTraining = false;
         $('#trainingBtn').prop('disabled', false).text('训练模式').data('training', false);
         $('#monitoringBtn').prop('disabled', false);
         $('#trainingStatus').hide();
@@ -264,6 +324,21 @@
         setTimeout(function() {
             location.reload();
         }, 2000);
+    }
+    
+    // 处理训练停止
+    function handleTrainingStopped() {
+        if (trainingTimer) {
+            clearTimeout(trainingTimer);
+            trainingTimer = null;
+        }
+        stopTrainingCountdown();
+        
+        isTraining = false;
+        $('#trainingBtn').text('训练模式').data('training', false);
+        $('#monitoringBtn').prop('disabled', false);
+        $('#trainingStatus').hide();
+        toastr.info('训练已停止');
     }
     
     // 处理异常检测
@@ -290,6 +365,12 @@
             toastr.error('系统未连接，请刷新页面重试');
             return false;
         }
+        
+        if (!isConnected) {
+            toastr.error('桥接器未连接，请确认本地桥接器正在运行');
+            return false;
+        }
+        
         try {
             ws.send(JSON.stringify(command));
             return true;
@@ -355,11 +436,15 @@
         breathChart.update('none');
     }
 
-    // 训练倒计时
+    // 训练倒计时 - 修复闪烁问题
     function startTrainingCountdown() {
         let remainingTime = 60;
         const progressBar = document.getElementById('trainingProgress');
         const countdownSpan = document.getElementById('trainingCountdown');
+        
+        // 立即更新一次
+        progressBar.style.width = '0%';
+        countdownSpan.textContent = '剩余时间: 60秒';
         
         trainingCountdownTimer = setInterval(function() {
             remainingTime--;
@@ -371,6 +456,14 @@
             if (remainingTime <= 0) {
                 clearInterval(trainingCountdownTimer);
                 countdownSpan.textContent = '训练即将结束...';
+                
+                // 自动发送停止命令
+                setTimeout(function() {
+                    if (isTraining) {
+                        sendWebSocketCommand({ command: 'stop_training' });
+                        toastr.warning('训练时间已到，自动结束训练');
+                    }
+                }, 1000);
             }
         }, 1000);
     }
@@ -393,24 +486,18 @@
         // 训练模式按钮
         $('#trainingBtn').click(function() {
             const btn = $(this);
+            
+            if (!isConnected) {
+                toastr.error('桥接器未连接，请确认本地桥接器正在运行');
+                return;
+            }
+            
             if (btn.data('training')) {
                 sendWebSocketCommand({ command: 'stop_training' });
-                
-                if (trainingTimer) {
-                    clearTimeout(trainingTimer);
-                    trainingTimer = null;
-                }
-                stopTrainingCountdown();
-                
-                btn.text('训练模式').data('training', false);
-                $('#trainingStatus').hide();
-                toastr.info('已手动停止训练');
                 return;
             }
             
             sendWebSocketCommand({ command: 'start_training' });
-            btn.data('training', true).text('停止训练');
-            $('#monitoringBtn').prop('disabled', true);
             
             // 清空图表数据
             chartData = [];
@@ -423,6 +510,12 @@
         // 监测模式按钮
         $('#monitoringBtn').click(function() {
             const btn = $(this);
+            
+            if (!isConnected) {
+                toastr.error('桥接器未连接，请确认本地桥接器正在运行');
+                return;
+            }
+            
             if (btn.data('monitoring')) {
                 sendWebSocketCommand({ command: 'stop_monitoring' });
             } else {

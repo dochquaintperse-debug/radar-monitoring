@@ -21,15 +21,16 @@
             width: 20px;
             height: 20px;
             border-radius: 50%;
-            background-color: grey;
+            background-color: #6c757d;
             display: inline-block;
             margin-right: 10px;
+            transition: background-color 0.3s ease;
         }
         #statusIndicator.connected {
-            background-color: green;
+            background-color: #28a745;
         }
         #statusIndicator.disconnected {
-            background-color: red;
+            background-color: #dc3545;
         }
         .anomaly-alert {
             position: fixed;
@@ -48,6 +49,32 @@
             from {transform: translateX(100%);}
             to {transform: translateX(0);}
         }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        
+        .connection-status.connected {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .connection-status.disconnected {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .connection-status.waiting {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
     </style>
 </head>
 <body>
@@ -57,7 +84,7 @@
                 <h1 class="display-4">毫米波雷达监测系统</h1>
                 <p class="lead">
                     <span id="statusIndicator"></span>
-                    <span id="connectionStatus">连接状态：等待连接...</span>
+                    <span id="connectionStatus">连接状态：初始化中...</span>
                 </p>
             </div>
         </div>

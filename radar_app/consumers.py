@@ -24,7 +24,7 @@ class RadarConsumer(AsyncWebsocketConsumer):
             is_cloud = os.environ.get('RENDER') is not None
             
             if is_cloud:
-                # 云端环境：直接处理命令，不依赖串口桥
+                # 云端环境：通过HTTP API处理命令
                 await self._handle_cloud_command(command)
             else:
                 # 本地环境：使用MQTT客户端和串口桥
@@ -40,22 +40,21 @@ class RadarConsumer(AsyncWebsocketConsumer):
     async def _handle_cloud_command(self, command):
         """云端环境命令处理"""
         if command == 'start_training':
-            # 云端训练模式：等待本地桥接器数据
-            await self.send(text_data=json.dumps({
-                'type': 'training_started',
-                'message': '训练模式已启动，等待本地桥接器数据...'
-            }))
-            
-            # 广播训练开始消息
-            await self.channel_layer.group_send(
-                "radar_group",
-                {
-                    "type": "training_started",
-                    "message": "云端训练模式已启动"
-                }
-            )
+            # 调用云端训练API
+            success = await self._call_cloud_api('start-training')
+            if success:
+                await self.send(text_data=json.dumps({
+                    'type': 'training_started',
+                    'message': '训练模式已启动，等待桥接器数据...'
+                }))
+            else:
+                await self.send(text_data=json.dumps({
+                    'type': 'error_message',
+                    'message': '启动训练失败'
+                }))
             
         elif command == 'stop_training':
+            success = await self._call_cloud_api('stop-training')
             await self.send(text_data=json.dumps({
                 'type': 'training_stopped', 
                 'message': '训练已手动停止'
@@ -101,6 +100,17 @@ class RadarConsumer(AsyncWebsocketConsumer):
             
         elif command == 'stop_monitoring':
             mqtt_client.stop_monitoring_mode()
+
+    @sync_to_async
+    def _call_cloud_api(self, endpoint):
+        """调用云端API"""
+        try:
+            import requests
+            response = requests.post(f'http://localhost:8000/api/{endpoint}/', timeout=5)
+            return response.status_code == 200
+        except Exception as e:
+            print(f"调用云端API失败: {e}")
+            return False
 
     @sync_to_async
     def _check_training_results(self):
