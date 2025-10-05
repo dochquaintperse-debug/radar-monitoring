@@ -129,6 +129,188 @@
 
 {% block scripts %}
 <script>
+    // 检查浏览器支持
+    if ('serial' in navigator) {
+        console.log('✅ 浏览器支持 Web Serial API');
+        $('#webSerialSupport').show();
+    } else {
+        console.log('❌ 浏览器不支持 Web Serial API');
+        $('#webSerialFallback').show();
+    }
+
+    // Web Serial API 连接函数
+    let serialPort = null;
+    let serialReader = null;
+
+    async function connectWebSerial() {
+        try {
+            // 请求用户选择串口
+            serialPort = await navigator.serial.requestPort({
+                filters: [
+                    { usbVendorId: 0x10c4 }, // Silicon Labs CP210x
+                    { usbVendorId: 0x0403 }, // FTDI
+                    { usbVendorId: 0x067b }  // Prolific
+                ]
+            });
+            
+            // 打开串口
+            await serialPort.open({
+                baudRate: 115200,
+                dataBits: 8,
+                stopBits: 1,
+                parity: 'none'
+            });
+            
+            toastr.success('🎉 直接串口连接成功！');
+            $('#portStatus').text('已连接: Web Serial API');
+            $('#trainingBtn').prop('disabled', false);
+            $('#monitoringBtn').prop('disabled', false);
+            
+            // 开始读取数据
+            startWebSerialReading();
+            
+        } catch (err) {
+            toastr.error(`连接失败: ${err.message}`);
+            console.error('Web Serial连接错误:', err);
+        }
+    }
+
+    // R60ABD1协议解析
+    function parseR60ABD1Frame(data) {
+        const frame = new Uint8Array(data);
+        
+        // 检查帧头 0x53 0x59
+        if (frame.length >= 10 && frame[0] === 0x53 && frame[1] === 0x59) {
+            // 检查呼吸数据帧 (81 82 00 01)
+            if (frame[2] === 0x81 && frame[3] === 0x82 && 
+                frame[4] === 0x00 && frame[5] === 0x01) {
+                
+                const value = frame[6]; // 呼吸数值
+                const hexValue = `0x${value.toString(16).toUpperCase().padStart(2, '0')}`;
+                
+                return {
+                    sensor_id: 'R60ABD1_BREATH_WEB',
+                    value: value,
+                    hex_value: hexValue,
+                    timestamp: new Date().toISOString()
+                };
+            }
+        }
+        return null;
+    }
+
+    // 读取串口数据
+    async function startWebSerialReading() {
+        if (!serialPort || !serialPort.readable) return;
+        
+        serialReader = serialPort.readable.getReader();
+        
+        try {
+            while (true) {
+                const { value, done } = await serialReader.read();
+                if (done) break;
+                
+                // 解析雷达数据
+                const parsed = parseR60ABD1Frame(value);
+                if (parsed) {
+                    console.log('🎯 解析到雷达数据:', parsed);
+                    
+                    // 直接处理数据（不需要WebSocket）
+                    processDirectRadarData(parsed);
+                }
+            }
+        } catch (error) {
+            console.error('读取串口数据错误:', error);
+        } finally {
+            if (serialReader) {
+                serialReader.releaseLock();
+            }
+        }
+    }
+
+    // 直接处理雷达数据
+    function processDirectRadarData(data) {
+        // 更新实时数据列表
+        const dataList = document.getElementById('realtime-data');
+        if (dataList.children.length === 1 && dataList.children[0].textContent === '等待数据...') {
+            dataList.innerHTML = '';
+        }
+        
+        const newItem = document.createElement('li');
+        newItem.className = 'list-group-item d-flex justify-content-between align-items-center';
+        const timeStr = new Date(data.timestamp).toLocaleTimeString();
+        newItem.innerHTML = `
+            <div>
+                <strong>🌐 Web串口</strong>: ${data.value} 
+                <small class="text-muted">(${data.hex_value})</small>
+            </div>
+            <small class="text-muted">${timeStr}</small>
+        `;
+        
+        dataList.insertBefore(newItem, dataList.firstChild);
+        while (dataList.children.length > 20) {
+            dataList.removeChild(dataList.lastChild);
+        }
+        
+        // 更新图表
+        updateBreathChart(data.timestamp, data.value);
+        
+        // 发送到后端保存（可选）
+        fetch('/api/web-serial-data', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        }).catch(err => console.log('发送到后端失败:', err));
+    }
+
+    // 发送查询命令到设备
+    async function sendRadarCommand() {
+        if (!serialPort || !serialPort.writable) {
+            console.log('串口不可写入');
+            return;
+        }
+        
+        const writer = serialPort.writable.getWriter();
+        try {
+            // R60ABD1呼吸查询命令: 53 59 81 82 00 01 0F BF 54 43
+            const command = new Uint8Array([0x53, 0x59, 0x81, 0x82, 0x00, 0x01, 0x0F, 0xBF, 0x54, 0x43]);
+            await writer.write(command);
+            console.log('✅ 已发送查询命令');
+        } finally {
+            writer.releaseLock();
+        }
+    }
+
+    // 定时发送命令
+    function startCommandLoop() {
+        setInterval(() => {
+            if (serialPort && $('#trainingBtn').data('training') || $('#monitoringBtn').data('monitoring')) {
+                sendRadarCommand();
+            }
+        }, 1000); // 每秒发送一次
+    }
+    </script>
+
+    <!-- 添加Web Serial连接按钮 -->
+    <div id="webSerialSupport" style="display: none;" class="mb-3">
+        <div class="alert alert-success" role="alert">
+            <i class="fas fa-usb"></i> 
+            <strong>支持直接串口连接！</strong> 
+            您的浏览器支持直接访问USB串口设备
+        </div>
+        <button id="webSerialBtn" class="btn btn-success" onclick="connectWebSerial()">
+            🔌 连接R60ABD1设备
+        </button>
+    </div>
+
+    <div id="webSerialFallback" style="display: none;" class="mb-3">
+        <div class="alert alert-warning" role="alert">
+            <i class="fas fa-exclamation-triangle"></i> 
+            <strong>浏览器不支持直接串口连接</strong><br>
+            请使用 <strong>Chrome 89+</strong> 或 <strong>Edge 89+</strong> 浏览器
+        </div>
+    </div>
+
     let breathChart;
     let chartData = [];
     let chartLabels = [];
