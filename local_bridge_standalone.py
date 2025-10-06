@@ -62,7 +62,7 @@ class SimpleBridge:
         """发送数据到云端"""
         try:
             response = requests.post(
-                f"{self.cloud_url}/api/radar-data/",
+                f"{self.cloud_url}/radar/api/radar-data/",
                 json=data,
                 timeout=5,
                 headers={'Content-Type': 'application/json'}
