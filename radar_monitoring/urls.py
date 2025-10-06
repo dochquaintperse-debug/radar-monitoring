@@ -16,11 +16,10 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, HttpResponseRedirect
 from django.conf import settings
 from django.conf.urls.static import static
 import os
-
 def health_check(request):
     """健康检查端点"""
     return JsonResponse({
@@ -30,26 +29,28 @@ def health_check(request):
         'mode': 'gunicorn',
         'debug': settings.DEBUG
     })
-
 def favicon_view(request):
     """返回空的 favicon 响应"""
     return HttpResponse(content_type="image/x-icon", status=200)
-
 def root_redirect(request):
-    """根路径重定向到雷达应用"""
-    return JsonResponse({
-        'message': '毫米波雷达监测系统',
-        'status': 'running',
-        'endpoints': {
-            'dashboard': '/radar/',
-            'api': '/radar/api/',
-            'admin': '/admin/',
-            'health': '/health/'
-        }
-    })
-
+    """根路径处理 - 根据请求类型返回不同响应"""
+    # 检查是否是API请求
+    if request.headers.get('Accept') == 'application/json' or 'api' in request.GET:
+        return JsonResponse({
+            'message': '毫米波雷达监测系统 API',
+            'status': 'running',
+            'endpoints': {
+                'dashboard': '/radar/',
+                'api': '/radar/api/',
+                'admin': '/admin/',
+                'health': '/health/'
+            }
+        })
+    else:
+        # 浏览器访问直接重定向到雷达界面
+        return HttpResponseRedirect('/radar/')
 urlpatterns = [
-    # 根路径
+    # 根路径 - 重定向到雷达界面
     path('', root_redirect, name='root'),
     
     # 管理后台
@@ -64,7 +65,6 @@ urlpatterns = [
     # Favicon处理
     path('favicon.ico', favicon_view, name='favicon'),
 ]
-
 # 开发环境静态文件服务
 if settings.DEBUG:
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
