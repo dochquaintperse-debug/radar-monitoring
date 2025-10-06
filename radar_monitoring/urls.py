@@ -16,10 +16,56 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from radar_app import views
+from django.http import JsonResponse, HttpResponse
+from django.conf import settings
+from django.conf.urls.static import static
+import os
+
+def health_check(request):
+    """健康检查端点"""
+    return JsonResponse({
+        'status': 'healthy',
+        'service': 'radar-monitoring',
+        'port': os.environ.get('PORT', '8000'),
+        'mode': 'gunicorn',
+        'debug': settings.DEBUG
+    })
+
+def favicon_view(request):
+    """返回空的 favicon 响应"""
+    return HttpResponse(content_type="image/x-icon", status=200)
+
+def root_redirect(request):
+    """根路径重定向到雷达应用"""
+    return JsonResponse({
+        'message': '毫米波雷达监测系统',
+        'status': 'running',
+        'endpoints': {
+            'dashboard': '/radar/',
+            'api': '/radar/api/',
+            'admin': '/admin/',
+            'health': '/health/'
+        }
+    })
 
 urlpatterns = [
+    # 根路径
+    path('', root_redirect, name='root'),
+    
+    # 管理后台
     path('admin/', admin.site.urls),
-    path('', include('radar_app.urls')),
-    path('api/radar-data/', views.receive_radar_data, name='api_receive_radar_data'),  # 新增API路由
+    
+    # 雷达应用所有路由
+    path('radar/', include('radar_app.urls')),
+    
+    # 健康检查
+    path('health/', health_check, name='health_check'),
+    
+    # Favicon处理
+    path('favicon.ico', favicon_view, name='favicon'),
 ]
+
+# 开发环境静态文件服务
+if settings.DEBUG:
+    urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -7,25 +7,24 @@ For more information on this file, see
 https://docs.djangoproject.com/en/4.2/howto/deployment/asgi/
 """
 import os
-import django
 from django.core.asgi import get_asgi_application
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
 
-# 1. 手动设置环境变量并初始化Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'radar_monitoring.settings')
-django.setup()  # 关键：确保应用加载完成
-
-# 2. 初始化后再导入路由（避免提前导入导致的错误）
-import radar_app.routing
-
-# 3. 配置ASGI应用
+# 确保Django应用正确初始化
+django_asgi_app = get_asgi_application()
+# 导入WebSocket路由
+from radar_app.routing import websocket_urlpatterns
 application = ProtocolTypeRouter({
-    "http": get_asgi_application(),  # 处理HTTP请求
-    "websocket": AuthMiddlewareStack(  # 处理WebSocket请求
+    "http": django_asgi_app,
+    "websocket": AuthMiddlewareStack(
         URLRouter(
-            radar_app.routing.websocket_urlpatterns  # 加载路由
+            websocket_urlpatterns
         )
     ),
 })
+# 添加调试信息
+print("🚀 ASGI application initialized with WebSocket support")
+print(f"📡 WebSocket patterns: {websocket_urlpatterns}")
 

@@ -21,14 +21,25 @@ IS_PRODUCTION = IS_RENDER
 ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
+    'testserver',
+    '0.0.0.0',
 ]
-
-# Render环境域名
-if IS_RENDER:
-    ALLOWED_HOSTS.extend([
-        os.environ.get('RENDER_EXTERNAL_HOSTNAME', ''),
-        '.onrender.com'
-    ])
+# 生产环境配置
+if not DEBUG:
+    # Render.com 部署
+    if os.environ.get('RENDER'):
+        ALLOWED_HOSTS.extend([
+            '.onrender.com',
+            'radar-monitoring.onrender.com',
+        ])
+    
+    # 其他生产环境域名
+    custom_hosts = os.environ.get('ALLOWED_HOSTS', '').split(',')
+    ALLOWED_HOSTS.extend([host.strip() for host in custom_hosts if host.strip()])
+else:
+    # 开发环境允许所有
+    ALLOWED_HOSTS = ['*']
+print(f"🌐 ALLOWED_HOSTS: {ALLOWED_HOSTS}")
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -137,7 +148,7 @@ else:
     }
     print("✅ 使用Redis通道层（本地）")
 
-# CORS配置 - 移除Railway域名
+# CORS配置
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 CORS_ALLOWED_ORIGINS = [
     "https://*.onrender.com",
@@ -164,6 +175,23 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_DIRS = []
 if os.path.exists(BASE_DIR / "static"):
     STATICFILES_DIRS.append(BASE_DIR / "static")
+
+# WhiteNoise 配置
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# 确保 WhiteNoise 在 MIDDLEWARE 中
+
+if 'whitenoise.middleware.WhiteNoiseMiddleware' not in MIDDLEWARE:
+    MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
+# 渲染模式检测
+
+RENDER_MODE = os.environ.get('RENDER_SERVICE_TYPE', 'web')
+if RENDER_MODE == 'web':
+    print("🌐 启动HTTP服务模式 (Gunicorn)")
+elif RENDER_MODE == 'websocket':
+    print("📡 启动WebSocket服务模式 (Daphne)")
+else:
+    print("🔧 默认模式启动")
+print(f"🚀 当前服务类型: {RENDER_MODE}")
 
 # 生产环境静态文件压缩
 if IS_RENDER:
@@ -222,8 +250,13 @@ LOGGING = {
 }
 
 # 启动信息
-print(f"🚀 Django配置（纯Render版）:")
-print(f"   📊 调试模式: {DEBUG}")
-print(f"   🌐 环境: {'Render生产' if IS_RENDER else '本地开发'}")
-print(f"   💾 数据库: {'PostgreSQL' if IS_RENDER else 'MySQL'}")
-print(f"   🔗 主机: {ALLOWED_HOSTS}")
+print("=" * 50)
+print("🚀 Django 配置信息")
+print(f"DEBUG: {DEBUG}")
+print(f"ALLOWED_HOSTS: {ALLOWED_HOSTS}")
+print(f"DATABASE: {DATABASES['default']['NAME']}")
+print(f"STATIC_URL: {STATIC_URL}")
+print(f"STATIC_ROOT: {STATIC_ROOT}")
+print(f"环境变量 PORT: {os.environ.get('PORT', '未设置')}")
+print(f"环境变量 RENDER: {os.environ.get('RENDER', '未设置')}")
+print("=" * 50)
