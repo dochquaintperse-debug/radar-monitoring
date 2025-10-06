@@ -7,3 +7,6 @@ whitenoise==6.4.0
 psycopg[binary]==3.2.3
 redis==5.0.1
 channels-redis==4.1.0
+python-dotenv==1.0.0
+requests==2.31.0
+corsheaders==4.3.1

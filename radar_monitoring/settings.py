@@ -5,9 +5,15 @@ from pathlib import Path
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# 加载环境变量
-from dotenv import load_dotenv
-load_dotenv()
+# 可选加载环境变量（修复dotenv错误）
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✅ 已加载 .env 文件")
+except ImportError:
+    print("⚠️ python-dotenv 未安装，跳过 .env 文件加载")
+except Exception as e:
+    print(f"⚠️ .env 文件加载失败: {e}")
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-k!i#5$z1x6f80=&&9+&c!p@4n_%js7@qc2-rh#rh0kwr6qku4f')
 
@@ -24,6 +30,7 @@ ALLOWED_HOSTS = [
     'testserver',
     '0.0.0.0',
 ]
+
 # 生产环境配置
 if not DEBUG:
     # Render.com 部署
@@ -39,6 +46,7 @@ if not DEBUG:
 else:
     # 开发环境允许所有
     ALLOWED_HOSTS = ['*']
+
 print(f"🌐 ALLOWED_HOSTS: {ALLOWED_HOSTS}")
 
 INSTALLED_APPS = [
@@ -83,11 +91,10 @@ TEMPLATES = [
     },
 ]
 
-
 WSGI_APPLICATION = 'radar_monitoring.wsgi.application'
 ASGI_APPLICATION = "radar_monitoring.asgi.application"
 
-# 数据库配置 - 简化为Render PostgreSQL和本地MySQL
+# 数据库配置 - 简化为Render PostgreSQL和本地SQLite
 if IS_RENDER:
     # Render环境：使用PostgreSQL
     database_url = os.environ.get("DATABASE_URL")
@@ -110,22 +117,14 @@ if IS_RENDER:
         }
         print("⚠️ 未找到DATABASE_URL，使用SQLite备用")
 else:
-    # 本地开发：使用MySQL
+    # 本地开发：改为SQLite避免MySQL依赖问题
     DATABASES = {
         'default': {
-            'ENGINE': 'django.db.backends.mysql',
-            'NAME': 'radar_db',
-            'USER': 'root',
-            'PASSWORD': 'Jago114514',
-            'HOST': 'localhost',
-            'PORT': '3306',
-            'OPTIONS': {
-                'charset': 'utf8mb4',
-                'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
-            },
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
         }
     }
-    print("✅ 使用本地MySQL数据库")
+    print("✅ 使用本地SQLite数据库")
 
 # Channels配置 - 简化
 if IS_RENDER:
@@ -137,16 +136,13 @@ if IS_RENDER:
     }
     print("✅ 使用内存通道层（Render）")
 else:
-    # 本地开发：使用Redis
+    # 本地开发：也使用内存层，避免Redis依赖
     CHANNEL_LAYERS = {
         'default': {
-            'BACKEND': 'channels_redis.core.RedisChannelLayer',
-            'CONFIG': {
-                "hosts": [('127.0.0.1', 6379)],
-            },
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
         },
     }
-    print("✅ 使用Redis通道层（本地）")
+    print("✅ 使用内存通道层（本地）")
 
 # CORS配置
 CORS_ALLOW_ALL_ORIGINS = DEBUG
@@ -178,12 +174,12 @@ if os.path.exists(BASE_DIR / "static"):
 
 # WhiteNoise 配置
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-# 确保 WhiteNoise 在 MIDDLEWARE 中
 
+# 确保 WhiteNoise 在 MIDDLEWARE 中
 if 'whitenoise.middleware.WhiteNoiseMiddleware' not in MIDDLEWARE:
     MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
-# 渲染模式检测
 
+# 渲染模式检测
 RENDER_MODE = os.environ.get('RENDER_SERVICE_TYPE', 'web')
 if RENDER_MODE == 'web':
     print("🌐 启动HTTP服务模式 (Gunicorn)")
@@ -191,6 +187,7 @@ elif RENDER_MODE == 'websocket':
     print("📡 启动WebSocket服务模式 (Daphne)")
 else:
     print("🔧 默认模式启动")
+
 print(f"🚀 当前服务类型: {RENDER_MODE}")
 
 # 生产环境静态文件压缩
@@ -253,8 +250,8 @@ LOGGING = {
 print("=" * 50)
 print("🚀 Django 配置信息")
 print(f"DEBUG: {DEBUG}")
-print(f"ALLOWED_HOSTS: {ALLOWED_HOSTS}")
-print(f"DATABASE: {DATABASES['default']['NAME']}")
+print(f"IS_RENDER: {IS_RENDER}")
+print(f"DATABASE ENGINE: {DATABASES['default']['ENGINE']}")
 print(f"STATIC_URL: {STATIC_URL}")
 print(f"STATIC_ROOT: {STATIC_ROOT}")
 print(f"环境变量 PORT: {os.environ.get('PORT', '未设置')}")
