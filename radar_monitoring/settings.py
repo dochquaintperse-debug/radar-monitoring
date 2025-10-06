@@ -94,7 +94,6 @@ TEMPLATES = [
 WSGI_APPLICATION = 'radar_monitoring.wsgi.application'
 ASGI_APPLICATION = "radar_monitoring.asgi.application"
 
-# 数据库配置 - 简化为Render PostgreSQL和本地SQLite
 if IS_RENDER:
     # Render环境：使用PostgreSQL
     database_url = os.environ.get("DATABASE_URL")

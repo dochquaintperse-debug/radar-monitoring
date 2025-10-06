@@ -7,8 +7,16 @@ services:
     buildCommand: |
       python -m pip install --upgrade pip
       pip install -r requirements.txt
-      python manage.py collectstatic --noinput
-    startCommand: python manage.py migrate && gunicorn radar_monitoring.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --timeout 120 --log-level info
+      python manage.py collectstatic --noinput --clear
+    startCommand: |
+      python manage.py migrate --noinput
+      gunicorn radar_monitoring.wsgi:application \
+        --bind 0.0.0.0:$PORT \
+        --workers 1 \
+        --timeout 120 \
+        --log-level info \
+        --access-logfile - \
+        --error-logfile -
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: radar_monitoring.settings
