@@ -1,154 +1,55 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="row">
-    <div class="col-md-8">
+<div class="card">
+    <div class="card-header">
+        <h3>🎯 专注状态实时监测</h3>
+    </div>
+    <div class="card-body" style="padding: 30px;">
+        
+        <!-- GitHub 链接提示 -->
+        <div class="alert alert-info">
+            <h5>📦 获取桥接器程序</h5>
+            <p>请访问我们的GitHub仓库下载桥接器：</p>
+            <a href="https://github.com/yourusername/radar-bridge" 
+               class="btn btn-primary" target="_blank">
+                📥 前往 GitHub 下载
+            </a>
+            <p class="mt-2 mb-0">
+                <small>运行桥接器后，输入本网站地址进行连接</small>
+            </p>
+        </div>
+        
+        <!-- 连接状态 -->
+        <div class="alert alert-info">
+            <span class="status-indicator" id="statusIndicator"></span>
+            <span id="statusText">等待桥接器连接...</span>
+        </div>
+        
+        <!-- 监测按钮和状态 -->
+        <div style="text-align: center; margin: 30px 0;">
+            <button id="monitoringBtn" class="btn btn-primary btn-lg" disabled>
+                🔍 开始专注监测
+            </button>
+            <div id="monitoringStatus" style="margin-top: 15px; display: none;">
+                <div class="alert alert-warning">
+                    <span id="statusMessage">正在启动监测...</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 实时图表 -->
         <div class="card">
             <div class="card-header">
-                <h3>雷达数据监控</h3>
+                <h4>📊 呼吸数据实时图表</h4>
             </div>
             <div class="card-body">
-                <!-- 云端环境提示 -->
-                <div class="alert alert-info" role="alert">
-                    <h5><i class="fas fa-info-circle"></i> 云端部署环境</h5>
-                    <p>当前运行在云端，无法直接访问本地串口设备。</p>
-                    <p><strong>使用方法：</strong></p>
-                    <ol>
-                        <li>下载桥接器程序到本地电脑</li>
-                        <li>安装Python依赖</li>
-                        <li>运行桥接器连接雷达设备</li>
-                        <li>在此界面查看实时数据和训练结果</li>
-                    </ol>
-                    
-                    <!-- 下载区域 -->
-                    <div class="mt-3">
-                        <h6>📥 桥接器下载：</h6>
-                        <div class="btn-group" role="group">
-                            <a href="/radar/download/setup/?windows=1" class="btn btn-success btn-sm">
-                                🪟 Windows一键安装
-                            </a>
-                            <a href="/radar/download/setup/" class="btn btn-success btn-sm">
-                                🐧 Linux/Mac一键安装
-                            </a>
-                            <a href="/radar/download/bridge/" class="btn btn-outline-primary btn-sm">
-                                📄 仅下载桥接器
-                            </a>
-                        </div>
-                        <div class="mt-2">
-                            <small class="text-muted">
-                                💡 推荐使用一键安装脚本，会自动安装依赖并下载桥接器
-                            </small>
-                        </div>
-                    </div>
-                    
-                    <div class="bg-dark text-success p-2 rounded mt-2">
-                        <code>python radar_bridge.py</code>
-                    </div>
-                </div>
-                
-                <!-- 连接状态显示 -->
-                <div class="alert alert-secondary" role="alert">
-                    <div class="d-flex align-items-center">
-                        <div id="connectionStatusIndicator" class="mr-2" style="width: 12px; height: 12px; border-radius: 50%; background-color: #6c757d;"></div>
-                        <span id="connectionStatusText">等待桥接器连接...</span>
-                        <span id="lastDataTime" class="ml-auto text-muted"></span>
-                    </div>
-                </div>
-                
-                <!-- 模式控制按钮 -->
-                <div class="mb-3">
-                    <div class="d-flex gap-2">
-                        <button id="trainingBtn" class="btn btn-primary btn-lg" disabled>训练模式</button>
-                        <button id="monitoringBtn" class="btn btn-success btn-lg" disabled>监测模式</button>
-                        <small class="text-muted mt-2">* 需要桥接器连接后才能使用</small>
-                    </div>
-                </div>
-                
-                <!-- 训练状态显示 -->
-                <div id="trainingStatus" style="display: none; margin-bottom: 20px;">
-                    <div class="alert alert-warning" role="alert">
-                        <strong>训练进行中...</strong>
-                        <div class="progress mt-2">
-                            <div id="trainingProgress" class="progress-bar progress-bar-striped progress-bar-animated" 
-                                 role="progressbar" style="width: 0%"></div>
-                        </div>
-                        <div class="d-flex justify-content-between mt-2">
-                            <span id="trainingCountdown">剩余时间: 60秒</span>
-                            <span id="dataCollected">已收集: 0 个数据点</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- 实时图表 -->
-                <h4>呼吸数据实时图表</h4>
-                <div style="height: 300px; margin-bottom: 20px; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px;">
+                <div style="height: 400px;">
                     <canvas id="breathChart"></canvas>
                 </div>
-                
-                <!-- 实时数据列表 -->
-                <h4>实时数据</h4>
-                <div class="data-container">
-                    <ul id="realtime-data" class="list-group">
-                        <li class="list-group-item text-muted">等待本地桥接器数据...</li>
-                    </ul>
-                </div>
-                
-                <!-- 传感器状态 -->
-                <div class="mt-3">
-                    <h4>传感器状态</h4>
-                    <div id="sensorStatus">
-                        {% if sensors %}
-                            {% for sensor in sensors %}
-                            <div class="card mb-2">
-                                <div class="card-body">
-                                    <h5 class="card-title">{{ sensor.display_name }}</h5>
-                                    {% if sensor.latest_training %}
-                                        <p class="card-text">平均值: {{ sensor.latest_training.average_value|floatformat:2 }}</p>
-                                        <p class="card-text text-muted">{{ sensor.latest_training.created_at }}</p>
-                                        <p class="card-text">
-                                            最新数值: 
-                                            <span id="latest-value-{{ sensor.id }}" class="badge badge-info">--</span>
-                                        </p>
-                                    {% else %}
-                                        <p class="card-text text-warning">未训练</p>
-                                    {% endif %}
-                                </div>
-                            </div>
-                            {% endfor %}
-                        {% else %}
-                            <p class="text-muted">暂无传感器数据，请确认本地桥接器正在运行</p>
-                        {% endif %}
-                    </div>
-                </div>
             </div>
         </div>
-    </div>
-    
-    <div class="col-md-4">
-        <div class="card">
-            <div class="card-header">
-                <h3>训练结果</h3>
-            </div>
-            <div class="card-body">
-                <div id="trainingResults">
-                    {% if sensors %}
-                        {% for sensor in sensors %}
-                            {% if sensor.latest_training %}
-                                <div class="card mb-2">
-                                    <div class="card-body">
-                                        <h5 class="card-title">{{ sensor.display_name }}</h5>
-                                        <p class="card-text">平均值: {{ sensor.latest_training.average_value|floatformat:2 }}</p>
-                                        <p class="card-text text-muted">{{ sensor.latest_training.created_at }}</p>
-                                    </div>
-                                </div>
-                            {% endif %}
-                        {% endfor %}
-                    {% else %}
-                        <p class="text-muted">暂无训练结果</p>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
+        
     </div>
 </div>
 {% endblock %}
@@ -158,309 +59,107 @@
     let breathChart;
     let chartData = [];
     let chartLabels = [];
-    let trainingTimer = null;
-    let trainingCountdownTimer = null;
     let ws = null;
     let isConnected = false;
-    let lastDataTime = null;
-    let dataCollectedCount = 0;
-    let isTraining = false;
-    
-    // WebSocket连接初始化
+    let isMonitoring = false;
+    let connectionTimeout = null;
+
+    // WebSocket连接
     function initWebSocket() {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = protocol + '//' + window.location.host + '/ws/radar/';
         
-        console.log('连接WebSocket: ' + wsUrl);
+        ws = new WebSocket(wsUrl);
         
-        try {
-            ws = new WebSocket(wsUrl);
+        ws.onopen = function() {
+            console.log('WebSocket连接成功');
+            updateStatus('connected', 'WebSocket已连接，等待数据...');
+        };
+
+        ws.onclose = function() {
+            updateStatus('disconnected', 'WebSocket已断开');
+            isConnected = false;
+            document.getElementById('monitoringBtn').disabled = true;
+            setTimeout(initWebSocket, 3000);
+        };
+
+        ws.onerror = function(error) {
+            console.error('WebSocket错误:', error);
+            updateStatus('disconnected', 'WebSocket连接失败');
+        };
+
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
             
-            ws.onopen = function() {
-                console.log('WebSocket连接成功');
-                document.getElementById('statusIndicator').className = 'connected';
-                document.getElementById('connectionStatus').textContent = '连接状态：WebSocket已连接';
-                toastr.success('系统连接成功');
-            };
-
-            ws.onclose = function(event) {
-                console.log('WebSocket连接关闭');
-                document.getElementById('statusIndicator').className = 'disconnected';
-                document.getElementById('connectionStatus').textContent = '连接状态：WebSocket已断开';
-                if (!event.wasClean) {
-                    toastr.warning('连接断开，3秒后重试...');
-                    setTimeout(initWebSocket, 3000);
-                }
-            };
-
-            ws.onerror = function(error) {
-                console.error('WebSocket错误:', error);
-                toastr.error('系统连接失败');
-            };
-            
-            // 消息处理
-            ws.onmessage = function(event) {
-                const data = JSON.parse(event.data);
-                console.log('收到WebSocket消息:', data); // 添加调试日志
-                
-                switch(data.type) {
-                    case 'training_started':
-                        console.log('训练启动成功:', data.message); // 添加调试日志
-                        toastr.success(data.message); // 改为success显示
-                        isTraining = true;
-                        dataCollectedCount = 0;
-                        $('#trainingStatus').show();
-                        $('#trainingBtn').text('停止训练').data('training', true);
-                        $('#monitoringBtn').prop('disabled', true);
-                        startTrainingCountdown();
-                        break;
-
-                    case 'radar_data':
-                        updateConnectionStatus(true);
-                        updateRealtimeData(data);
-                        updateSensorStatus(data);
-                        updateBreathChart(data.timestamp, data.value);
-                        
-                        // 训练期间计数
-                        if (isTraining) {
-                            dataCollectedCount++;
-                            $('#dataCollected').text(`已收集: ${dataCollectedCount} 个数据点`);
-                        }
-                        break;
-                        
-                    case 'training_complete':
-                        handleTrainingComplete(data);
-                        break;
-
-                    case 'training_stopped':
-                        handleTrainingStopped();
-                        break;
-
-                    case 'monitoring_started':
-                        $('#monitoringBtn').text('停止监测').removeClass('btn-success').addClass('btn-danger');
-                        $('#monitoringBtn').data('monitoring', true);
-                        toastr.info('监测已开始');
-                        break;
-
-                    case 'monitoring_stopped':
-                        $('#monitoringBtn').text('监测模式').removeClass('btn-danger').addClass('btn-success');
-                        $('#monitoringBtn').data('monitoring', false);
-                        toastr.info('已停止监测');
-                        break;
-
-                    case 'anomaly_detected':
-                        handleAnomalyDetection(data);
-                        break;
-                        
-                    case 'error_message':
-                        console.error('收到错误消息:', data.message); // 添加调试日志
-                        toastr.error(data.message);
-                        
-                        // 如果是训练启动失败，重置按钮状态
-                        if (data.message.includes('启动训练失败')) {
-                            $('#trainingBtn').text('训练模式').data('training', false);
-                            $('#trainingStatus').hide();
-                            $('#monitoringBtn').prop('disabled', false);
-                        }
-                        break;
-                }
-            };
-            
-        } catch (error) {
-            console.error('WebSocket初始化失败:', error);
-            toastr.error('系统连接失败，请刷新页面重试');
-        }
+            switch(data.type) {
+                case 'radar_data':
+                    handleRadarData(data);
+                    break;
+                case 'monitoring_started':
+                    isMonitoring = true;
+                    document.getElementById('monitoringBtn').textContent = '⏹ 停止监测';
+                    document.getElementById('monitoringStatus').style.display = 'block';
+                    document.getElementById('statusMessage').textContent = data.message;
+                    break;
+                case 'monitoring_stopped':
+                    isMonitoring = false;
+                    document.getElementById('monitoringBtn').textContent = '🔍 开始专注监测';
+                    document.getElementById('monitoringStatus').style.display = 'none';
+                    break;
+                case 'show_cloud':
+                    showFocusCloud(data);
+                    break;
+                case 'error_message':
+                    console.error('收到错误:', data.message);
+                    alert('错误: ' + data.message);
+                    break;
+            }
+        };
     }
-    
-    // 更新连接状态
-    function updateConnectionStatus(hasData) {
-        if (hasData) {
+
+    // 处理雷达数据
+    function handleRadarData(data) {
+        if (!isConnected) {
             isConnected = true;
-            lastDataTime = new Date();
-            
-            // 更新状态指示器
-            document.getElementById('connectionStatusIndicator').style.backgroundColor = '#28a745'; // 绿色
-            document.getElementById('connectionStatusText').textContent = '桥接器已连接 - 数据正常';
-            document.getElementById('lastDataTime').textContent = `最后数据: ${lastDataTime.toLocaleTimeString()}`;
-            
-            // 启用按钮
-            $('#trainingBtn').prop('disabled', false);
-            $('#monitoringBtn').prop('disabled', false);
+            updateStatus('connected', '桥接器已连接 - 数据正常');
+            document.getElementById('monitoringBtn').disabled = false;
         }
         
-        // 检查连接超时（30秒无数据认为断开）
-        setTimeout(function() {
-            if (lastDataTime && (new Date() - lastDataTime) > 30000) {
+        // 重置连接超时
+        if (connectionTimeout) {
+            clearTimeout(connectionTimeout);
+        }
+        
+        // 设置30秒超时检测
+        connectionTimeout = setTimeout(() => {
+            if (isConnected) {
                 isConnected = false;
-                document.getElementById('connectionStatusIndicator').style.backgroundColor = '#dc3545'; // 红色
-                document.getElementById('connectionStatusText').textContent = '桥接器连接超时';
-                $('#trainingBtn').prop('disabled', true);
-                $('#monitoringBtn').prop('disabled', true);
+                updateStatus('disconnected', '数据连接超时');
+                document.getElementById('monitoringBtn').disabled = true;
             }
         }, 30000);
-    }
-    
-    // 更新实时数据列表
-    function updateRealtimeData(data) {
-        const dataList = document.getElementById('realtime-data');
         
-        if (dataList.children.length === 1 && dataList.children[0].textContent.includes('等待')) {
-            dataList.innerHTML = '';
-        }
-        
-        const newItem = document.createElement('li');
-        newItem.className = 'list-group-item d-flex justify-content-between align-items-center';
-        
-        const timeStr = new Date(data.timestamp).toLocaleTimeString();
-        newItem.innerHTML = '<div>' +
-            '<strong>传感器 ' + data.sensor_id + '</strong>: ' + data.value + ' ' +
-            '<small class="text-muted">(' + data.hex_value + ')</small>' +
-            '</div>' +
-            '<small class="text-muted">' + timeStr + '</small>';
-        
-        dataList.insertBefore(newItem, dataList.firstChild);
-
-        // 限制显示条数
-        while (dataList.children.length > 20) {
-            dataList.removeChild(dataList.lastChild);
-        }
-    }
-    
-    // 更新传感器状态
-    function updateSensorStatus(data) {
-        const sensorIdNum = data.sensor_id.replace(/\D/g, '');
-        const latestValueElem = document.getElementById('latest-value-' + sensorIdNum);
-        if (latestValueElem) {
-            latestValueElem.textContent = data.value;
-            latestValueElem.className = 'badge badge-success';
-            
-            setTimeout(function() {
-                latestValueElem.className = 'badge badge-info';
-            }, 3000);
-        }
-    }
-    
-    // 处理训练完成
-    function handleTrainingComplete(data) {
-        toastr.success('传感器 ' + data.sensor_id + ' 训练完成，平均值: ' + data.average_value.toFixed(2));
-        
-        if (trainingTimer) {
-            clearTimeout(trainingTimer);
-            trainingTimer = null;
-        }
-        stopTrainingCountdown();
-        
-        isTraining = false;
-        $('#trainingBtn').prop('disabled', false).text('训练模式').data('training', false);
-        $('#monitoringBtn').prop('disabled', false);
-        $('#trainingStatus').hide();
-        
-        setTimeout(function() {
-            location.reload();
-        }, 2000);
-    }
-    
-    // 处理训练停止
-    function handleTrainingStopped() {
-        if (trainingTimer) {
-            clearTimeout(trainingTimer);
-            trainingTimer = null;
-        }
-        stopTrainingCountdown();
-        
-        isTraining = false;
-        $('#trainingBtn').text('训练模式').data('training', false);
-        $('#monitoringBtn').prop('disabled', false);
-        $('#trainingStatus').hide();
-        toastr.info('训练已停止');
-    }
-    
-    // 处理异常检测
-    function handleAnomalyDetection(data) {
-        const alertDiv = document.createElement('div');
-        alertDiv.className = 'alert alert-danger position-fixed';
-        alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-        alertDiv.innerHTML = '<strong>异常警告!</strong><br>' +
-            '传感器 ' + data.sensor_id + ' 检测到异常<br>' +
-            '异常值: ' + data.values.join(', ') + '<br>' +
-            '基准值: ' + data.average.toFixed(2);
-        document.body.appendChild(alertDiv);
-        
-        setTimeout(function() {
-            alertDiv.remove();
-        }, 5000);
-        
-        toastr.error('检测到呼吸异常！');
+        updateChart(data.timestamp, data.value);
     }
 
-    // 发送WebSocket命令
-    function sendWebSocketCommand(command) {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-            toastr.error('系统未连接，请刷新页面重试');
-            return false;
-        }
+    // 更新状态显示
+    function updateStatus(status, text) {
+        const indicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
         
-        if (!isConnected) {
-            toastr.error('桥接器未连接，请确认本地桥接器正在运行');
-            return false;
-        }
-        
-        try {
-            ws.send(JSON.stringify(command));
-            return true;
-        } catch (e) {
-            toastr.error('命令发送失败: ' + e.message);
-            return false;
-        }
+        indicator.className = `status-indicator status-${status}`;
+        statusText.textContent = text;
     }
 
-    // 初始化呼吸数据图表
-    function initBreathChart() {
-        const ctx = document.getElementById('breathChart').getContext('2d');
-        breathChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: chartLabels,
-                datasets: [{
-                    label: '呼吸数值',
-                    data: chartData,
-                    borderColor: 'rgb(75, 192, 192)',
-                    backgroundColor: 'rgba(75, 192, 192, 0.1)',
-                    tension: 0.4,
-                    fill: true
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    title: {
-                        display: true,
-                        text: '实时呼吸数据监测'
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: {
-                            display: true,
-                            text: '呼吸数值'
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    // 更新图表数据
-    function updateBreathChart(timestamp, value) {
-        const timeStr = new Date(timestamp).toLocaleTimeString();
+    // 更新图表
+    function updateChart(timestamp, value) {
+        const timeStr = new Date().toLocaleTimeString();
         
         chartLabels.push(timeStr);
         chartData.push(value);
         
-        const maxPoints = 50;
-        if (chartData.length > maxPoints) {
+        // 保持最多50个数据点
+        if (chartData.length > 50) {
             chartData.shift();
             chartLabels.shift();
         }
@@ -470,104 +169,99 @@
         breathChart.update('none');
     }
 
-    // 训练倒计时 - 修复闪烁问题
-    function startTrainingCountdown() {
-        let remainingTime = 60;
-        const progressBar = document.getElementById('trainingProgress');
-        const countdownSpan = document.getElementById('trainingCountdown');
+    // 显示专注云朵 - 增强版本
+    function showFocusCloud(data) {
+        const cloud = document.getElementById('focusCloud');
+        cloud.className = 'cloud show';
         
-        // 立即更新一次
-        progressBar.style.width = '0%';
-        countdownSpan.textContent = '剩余时间: 60秒';
+        console.log(`检测到专注状态! 数据点: ${data.data_count}`);
         
-        trainingCountdownTimer = setInterval(function() {
-            remainingTime--;
-            const progress = ((60 - remainingTime) / 60) * 100;
-            
-            progressBar.style.width = progress + '%';
-            countdownSpan.textContent = '剩余时间: ' + remainingTime + '秒';
-            
-            if (remainingTime <= 0) {
-                clearInterval(trainingCountdownTimer);
-                countdownSpan.textContent = '训练即将结束...';
-                
-                // 自动发送停止命令
-                setTimeout(function() {
-                    if (isTraining) {
-                        sendWebSocketCommand({ command: 'stop_training' });
-                        toastr.warning('训练时间已到，自动结束训练');
-                    }
-                }, 1000);
-            }
-        }, 1000);
-    }
-
-    function stopTrainingCountdown() {
-        if (trainingCountdownTimer) {
-            clearInterval(trainingCountdownTimer);
-            trainingCountdownTimer = null;
+        // 5秒后隐藏
+        setTimeout(() => {
+            cloud.className = 'cloud hide';
+        }, 5000);
+        
+        // 可选：播放提示音
+        try {
+            const audio = new Audio('/static/js/focus-sound.mp3');
+            audio.play().catch(e => console.log('音频播放失败:', e));
+        } catch (e) {
+            console.log('音频文件不存在');
         }
     }
 
-    // 页面初始化
-    $(document).ready(function() {
-        // 初始化图表
-        initBreathChart();
-        
-        // 初始化WebSocket连接
-        initWebSocket();
-        
-        // 训练模式按钮
-        $('#trainingBtn').click(function() {
-            const btn = $(this);
-            
-            if (!isConnected) {
-                toastr.error('桥接器未连接，请确认本地桥接器正在运行');
-                return;
-            }
-            
-            if (btn.data('training')) {
-                console.log('发送停止训练命令'); // 调试日志
-                sendWebSocketCommand({ command: 'stop_training' });
-                return;
-            }
-            
-            console.log('发送启动训练命令'); // 调试日志
-            const success = sendWebSocketCommand({ command: 'start_training' });
-            
-            if (success) {
-                console.log('训练命令发送成功，等待服务器响应...'); // 调试日志
-                // 清空图表数据
-                chartData = [];
-                chartLabels = [];
-                breathChart.data.labels = chartLabels;
-                breathChart.data.datasets[0].data = chartData;
-                breathChart.update();
-            } else {
-                console.error('训练命令发送失败'); // 调试日志
+    // 初始化图表
+    function initChart() {
+        const ctx = document.getElementById('breathChart').getContext('2d');
+        breathChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartLabels,
+                datasets: [{
+                    label: '呼吸数值',
+                    data: chartData,
+                    borderColor: '#FFD700',
+                    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+                    borderWidth: 3,
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius: 2,
+                    pointHoverRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 0 // 禁用动画提高性能
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: '实时呼吸数据监测',
+                        color: '#8B4513',
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: {
+                        labels: {
+                            color: '#8B4513'
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: '#DEB887' },
+                        ticks: { color: '#8B4513' }
+                    },
+                    x: {
+                        grid: { color: '#DEB887' },
+                        ticks: { 
+                            color: '#8B4513',
+                            maxTicksLimit: 10 // 限制X轴标签数量
+                        }
+                    }
+                }
             }
         });
+    }
+
+    // 页面初始化
+    document.addEventListener('DOMContentLoaded', function() {
+        initChart();
+        initWebSocket();
         
-        // 监测模式按钮
-        $('#monitoringBtn').click(function() {
-            const btn = $(this);
-            
+        // 监测按钮事件
+        document.getElementById('monitoringBtn').addEventListener('click', function() {
             if (!isConnected) {
-                toastr.error('桥接器未连接，请确认本地桥接器正在运行');
+                alert('请先连接桥接器！');
                 return;
             }
             
-            if (btn.data('monitoring')) {
-                sendWebSocketCommand({ command: 'stop_monitoring' });
+            if (!isMonitoring) {
+                ws.send(JSON.stringify({ command: 'start_monitoring' }));
             } else {
-                sendWebSocketCommand({ command: 'start_monitoring' });
-                
-                // 清空图表数据
-                chartData = [];
-                chartLabels = [];
-                breathChart.data.labels = chartLabels;
-                breathChart.data.datasets[0].data = chartData;
-                breathChart.update();
+                ws.send(JSON.stringify({ command: 'stop_monitoring' }));
             }
         });
     });

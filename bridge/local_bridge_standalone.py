@@ -5,6 +5,7 @@ import serial.tools.list_ports
 import requests
 import time
 import json
+
 class SimpleBridge:
     def __init__(self, cloud_url):
         self.cloud_url = cloud_url.rstrip('/')
@@ -27,7 +28,7 @@ class SimpleBridge:
         try:
             test_serial = serial.Serial(port, 115200, timeout=2)
             
-            # 发送识别命令
+            # 识别命令
             identify_cmd = b"\x53\x59\x01\x80\x00\x01\x0F\x3D\x54\x43"
             test_serial.write(identify_cmd)
             time.sleep(1)
@@ -36,7 +37,7 @@ class SimpleBridge:
                 response = test_serial.read(test_serial.in_waiting)
                 print(f"端口 {port} 响应: {response.hex().upper()}")
                 
-                # 检查是否包含预期响应
+                # 预期响应
                 if identify_cmd in response:
                     test_serial.close()
                     return True
@@ -52,10 +53,10 @@ class SimpleBridge:
         """连接串口"""
         try:
             self.serial_port = serial.Serial(port, 115200, timeout=2)
-            print(f"✅ 已连接串口: {port}")
+            print(f"已连接串口: {port}")
             return True
         except Exception as e:
-            print(f"❌ 连接串口失败: {e}")
+            print(f"连接串口失败: {e}")
             return False
     
     def send_to_cloud(self, data):
@@ -69,21 +70,21 @@ class SimpleBridge:
             )
             
             if response.status_code == 200:
-                print(f"📤 数据发送成功: 值={data['value']}")
+                print(f"数据发送成功: 值={data['value']}")
                 return True
             else:
-                print(f"❌ 云端响应错误: {response.status_code}")
-                print(f"   响应内容: {response.text[:100]}")
+                print(f"云端响应错误: {response.status_code}")
+                print(f"响应内容: {response.text[:100]}")
                 return False
                 
         except requests.exceptions.ConnectionError:
-            print(f"❌ 无法连接到云端: {self.cloud_url}")
+            print(f"无法连接到云端: {self.cloud_url}")
             return False
         except requests.exceptions.Timeout:
-            print("❌ 请求超时")
+            print("请求超时")
             return False
         except Exception as e:
-            print(f"❌ 发送错误: {e}")
+            print(f"发送错误: {e}")
             return False
     
     def parse_radar_data(self, raw_data):
@@ -108,11 +109,11 @@ class SimpleBridge:
     
     def run(self):
         """运行监控"""
-        print("🔍 正在扫描串口...")
+        print("正在扫描串口...")
         ports = self.find_ports()
         
         if not ports:
-            print("❌ 未发现可用串口")
+            print("未发现可用串口")
             return
             
         print(f"发现串口: {ports}")
@@ -120,23 +121,23 @@ class SimpleBridge:
         # 查找雷达设备
         radar_port = None
         for port in ports:
-            print(f"🧪 测试端口 {port}...")
+            print(f" 测试端口 {port}...")
             if self.test_radar_connection(port):
                 radar_port = port
-                print(f"✅ 发现雷达设备: {port}")
+                print(f"发现雷达设备: {port}")
                 break
             else:
-                print(f"❌ 端口 {port} 不是雷达设备")
+                print(f"端口 {port} 不是雷达设备")
         
         if not radar_port:
-            print("❌ 未发现雷达设备")
+            print("未发现雷达设备")
             return
         
         # 连接雷达
         if not self.connect(radar_port):
             return
         
-        print("🚀 开始数据传输...")
+        print("开始数据传输...")
         print("按 Ctrl+C 停止")
         print("-" * 50)
         
@@ -146,84 +147,79 @@ class SimpleBridge:
         try:
             while True:
                 try:
-                    # 发送查询命令
+                    # 查询命令
                     query_cmd = b"\x53\x59\x81\x82\x00\x01\x0F\xBF\x54\x43"
                     self.serial_port.write(query_cmd)
                     time.sleep(0.1)
                     
-                    # 读取响应
                     if self.serial_port.in_waiting >= 10:
                         raw_data = self.serial_port.read(10)
-                        print(f"📡 接收数据: {raw_data.hex().upper()}")
+                        print(f"接收数据: {raw_data.hex().upper()}")
                         
                         parsed = self.parse_radar_data(raw_data)
                         if parsed:
-                            # 准备云端数据
                             cloud_data = {
                                 "sensor_id": f"LOCAL_RADAR_{radar_port.replace('COM', '')}",
                                 "value": parsed["value"],
                                 "hex_value": parsed["hex_value"],
                                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
                             }
-                            
-                            # 发送到云端
                             if self.send_to_cloud(cloud_data):
                                 consecutive_errors = 0
                             else:
                                 consecutive_errors += 1
                         else:
-                            print("⚠️ 数据解析失败")
+                            print("数据解析失败")
                     
-                    # 错误处理
                     if consecutive_errors >= max_errors:
-                        print(f"❌ 连续 {max_errors} 次发送失败，请检查网络连接")
+                        print(f"连续 {max_errors} 次发送失败，请检查网络连接")
                         break
                     
-                    time.sleep(2)  # 每2秒查询一次
+                    time.sleep(1) 
                     
                 except KeyboardInterrupt:
-                    print("\n⏹️ 用户手动停止")
+                    print("\n用户手动停止")
                     break
                 except Exception as e:
-                    print(f"❌ 运行时错误: {e}")
+                    print(f"运行时错误: {e}")
                     time.sleep(5)
                     
         finally:
             if self.serial_port and self.serial_port.is_open:
                 self.serial_port.close()
-                print("🔌 串口已关闭")
+                print("串口已关闭")
 def main():
-    print("🌐 雷达数据云端桥接器 v1.0")
+    print("雷达数据云端桥接器 v1.0")
     print("=" * 50)
     
     # 获取云端网址
     while True:
-        cloud_url = input("请输入您的Render应用网址: ").strip()
+        cloud_url = input("输入网址: ").strip()
         
         if not cloud_url:
-            print("❌ 网址不能为空")
+            print("网址不能为空")
             continue
             
         # 自动添加协议
         if not cloud_url.startswith(('http://', 'https://')):
             cloud_url = 'https://' + cloud_url
             
-        print(f"🎯 目标云端: {cloud_url}")
+        print(f"目标云端: {cloud_url}")
         
         # 测试连接
         try:
-            print("🧪 测试云端连接...")
+            print("测试云端连接...")
             response = requests.get(cloud_url, timeout=10)
             if response.status_code == 200:
-                print("✅ 云端连接正常")
+                print("云端连接正常")
                 break
             else:
-                print(f"⚠️ 云端响应异常: {response.status_code}")
+                print(f"云端响应异常: {response.status_code}")
                 retry = input("是否继续？(y/n): ")
                 if retry.lower() == 'y':
                     break
         except Exception as e:
-            print(f"❌ 云端连接失败: {e}")
+            print(f"云端连接失败: {e}")
             retry = input("是否重新输入网址？(y/n): ")
             if retry.lower() != 'y':
                 return
