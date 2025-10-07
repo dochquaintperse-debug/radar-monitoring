@@ -27,4 +27,9 @@ urlpatterns = [
     # API测试端点
     path('api/test/', views.api_test, name='api_test'),
     path('api/status/', views.api_status, name='api_status'),
+
+    # 下载相关
+    path('download/bridge/', views.download_bridge, name='download_bridge'),
+    path('download/requirements/', views.download_requirements, name='download_requirements'),
+    path('download/setup/', views.download_setup_script, name='download_setup_script'),
 ]
