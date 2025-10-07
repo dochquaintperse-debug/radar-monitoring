@@ -4,6 +4,9 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
 from django.utils import timezone
 from datetime import timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 class RadarConsumer(AsyncWebsocketConsumer):
     
@@ -11,19 +14,27 @@ class RadarConsumer(AsyncWebsocketConsumer):
         super().__init__(*args, **kwargs)
         self.monitoring_task = None
         self.is_monitoring = False
+        self.heartbeat_task = None
+        self.last_data_time = None
     
     async def connect(self):
         await self.channel_layer.group_add("radar_group", self.channel_name)
         await self.accept()
-        print("WebSocket连接已建立")
+        logger.info(f"WebSocket连接已建立: {self.channel_name}")
+        
+        # 启动心跳检测
+        self.heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         
     async def disconnect(self, close_code):
-        # 停止监测任务
+        # 停止所有任务
         if self.monitoring_task:
             self.monitoring_task.cancel()
             self.is_monitoring = False
+        if self.heartbeat_task:
+            self.heartbeat_task.cancel()
+            
         await self.channel_layer.group_discard("radar_group", self.channel_name)
-        print("WebSocket连接已断开")
+        logger.info(f"WebSocket连接已断开: {self.channel_name}, 代码: {close_code}")
 
     async def receive(self, text_data):
         try:
@@ -34,12 +45,37 @@ class RadarConsumer(AsyncWebsocketConsumer):
                 await self.start_monitoring()
             elif command == 'stop_monitoring':
                 await self.stop_monitoring()
+            elif command == 'ping':
+                await self.send(text_data=json.dumps({
+                    'type': 'pong',
+                    'timestamp': timezone.now().isoformat()
+                }))
                 
         except Exception as e:
+            logger.error(f"命令处理失败: {e}")
             await self.send(text_data=json.dumps({
                 'type': 'error_message',
                 'message': f'命令处理失败: {str(e)}'
             }))
+
+    async def _heartbeat_loop(self):
+        """心跳检测循环"""
+        try:
+            while True:
+                await asyncio.sleep(30) 
+                
+                if self.last_data_time:
+                    time_diff = timezone.now() - self.last_data_time
+                    if time_diff.total_seconds() > 60: 
+                        await self.send(text_data=json.dumps({
+                            'type': 'connection_warning',
+                            'message': '数据连接可能中断，请检查桥接器'
+                        }))
+                
+        except asyncio.CancelledError:
+            logger.info("心跳检测已停止")
+        except Exception as e:
+            logger.error(f"心跳检测出错: {e}")
 
     async def start_monitoring(self):
         """启动监测模式"""
@@ -56,41 +92,54 @@ class RadarConsumer(AsyncWebsocketConsumer):
         self.monitoring_task = asyncio.create_task(self._monitoring_loop())
 
     async def _monitoring_loop(self):
+        """优化的监测循环"""
         try:
-            await asyncio.sleep(60)
-            
             focus_state = False
+            consecutive_focus_count = 0
             
             while self.is_monitoring:
+                # 收集5秒内的数据
                 focus_data = []
                 for i in range(5):
                     if not self.is_monitoring:
                         return
                     
-                    recent_data = await self._get_recent_data()
+                    recent_data = await self._get_recent_data(1)
                     focus_data.extend(recent_data)
                     await asyncio.sleep(1)
                 
-                # 判断专注状态 (所有数据都在15-17范围内)
                 if focus_data:
-                    is_focused = all(15 <= value <= 17 for value in focus_data)
+                    # 专注状态判断
+                    focus_values = [v for v in focus_data if 15 <= v <= 17]
+                    focus_ratio = len(focus_values) / len(focus_data)
                     
-                    if is_focused and not focus_state:
-                        await self.send(text_data=json.dumps({
-                            'type': 'show_cloud',
-                            'message': '检测到专注状态',
-                            'data_count': len(focus_data)
-                        }))
-                        focus_state = True
-                    elif not is_focused:
-                        focus_state = False
+                    is_focused = focus_ratio >= 0.8 and len(focus_data) >= 3
+                    
+                    if is_focused:
+                        consecutive_focus_count += 1
+                        if consecutive_focus_count >= 2 and not focus_state: 
+                            await self.send(text_data=json.dumps({
+                                'type': 'show_cloud',
+                                'message': '检测到专注状态',
+                                'data_count': len(focus_data),
+                                'focus_ratio': round(focus_ratio * 100, 1)
+                            }))
+                            focus_state = True
+                    else:
+                        consecutive_focus_count = 0
+                        if focus_state:
+                            focus_state = False
+                            await self.send(text_data=json.dumps({
+                                'type': 'focus_lost',
+                                'message': '专注状态结束'
+                            }))
                 
                 await asyncio.sleep(1)
                 
         except asyncio.CancelledError:
-            print("监测任务已取消")
+            logger.info("监测任务已取消")
         except Exception as e:
-            print(f"监测循环出错: {e}")
+            logger.error(f"监测循环出错: {e}")
             await self.send(text_data=json.dumps({
                 'type': 'error_message',
                 'message': f'监测出错: {str(e)}'
@@ -109,19 +158,20 @@ class RadarConsumer(AsyncWebsocketConsumer):
         }))
 
     @sync_to_async
-    def _get_recent_data(self):
-        """获取最近1秒的数据"""
+    def _get_recent_data(self, seconds):
+        """获取最近几秒的数据"""
         from .models import RadarData
         
-        one_second_ago = timezone.now() - timedelta(seconds=1)
+        time_ago = timezone.now() - timedelta(seconds=seconds)
         recent_data = list(RadarData.objects.filter(
-            timestamp__gte=one_second_ago
+            timestamp__gte=time_ago
         ).values_list('value', flat=True))
         
         return recent_data
 
     # 消息处理器
     async def radar_data(self, event):
+        self.last_data_time = timezone.now()
         await self.send(text_data=json.dumps({
             'type': 'radar_data',
             'sensor_id': event['sensor_id'],
