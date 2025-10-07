@@ -61,219 +61,286 @@
     let chartLabels = [];
     let ws = null;
     let isConnected = false;
+    let isBridgeConnected = false;
     let isMonitoring = false;
-    let connectionTimeout = null;
-    let reconnectAttempts = 0;
-    let maxReconnectAttempts = 5;
-    let pingInterval = null;
-
-    // 改进的WebSocket连接
+    let monitoringCountdown = 0;
+    // WebSocket连接
     function initWebSocket() {
-        if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
-            return; // 避免重复连接
-        }
-
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = protocol + '//' + window.location.host + '/ws/radar/';
         
-        console.log('尝试WebSocket连接:', wsUrl);
         ws = new WebSocket(wsUrl);
         
         ws.onopen = function() {
             console.log('WebSocket连接成功');
-            updateStatus('connected', 'WebSocket已连接，等待数据...');
-            reconnectAttempts = 0;
-            
-            // 启动心跳
-            startHeartbeat();
+            isConnected = true;
         };
-
-        ws.onclose = function(event) {
-            console.log('WebSocket连接关闭:', event.code, event.reason);
-            updateStatus('disconnected', 'WebSocket已断开');
+        ws.onclose = function() {
+            console.log('WebSocket连接关闭');
             isConnected = false;
-            document.getElementById('monitoringBtn').disabled = true;
-            
-            stopHeartbeat();
-            
-            // 自动重连
-            if (reconnectAttempts < maxReconnectAttempts) {
-                reconnectAttempts++;
-                const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
-                console.log(`${delay/1000}秒后重连 (尝试 ${reconnectAttempts}/${maxReconnectAttempts})`);
-                setTimeout(initWebSocket, delay);
-            } else {
-                updateStatus('disconnected', 'WebSocket重连失败，请刷新页面');
-            }
+            isBridgeConnected = false;
+            updateStatus('disconnected', 'WebSocket连接中断');
+            updateMonitoringButton();
+            setTimeout(initWebSocket, 3000);
         };
-
-        ws.onerror = function(error) {
-            console.error('WebSocket错误:', error);
-            updateStatus('disconnected', 'WebSocket连接错误');
-        };
-
         ws.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                handleWebSocketMessage(data);
-            } catch (e) {
-                console.error('消息解析失败:', e, event.data);
-            }
+            const data = JSON.parse(event.data);
+            handleWebSocketMessage(data);
         };
     }
-
-    // 心跳机制
-    function startHeartbeat() {
-        stopHeartbeat(); // 清除旧的心跳
-        pingInterval = setInterval(() => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ command: 'ping' }));
-            }
-        }, 30000); // 每30秒发送心跳
-    }
-
-    function stopHeartbeat() {
-        if (pingInterval) {
-            clearInterval(pingInterval);
-            pingInterval = null;
-        }
-    }
-
     // 处理WebSocket消息
     function handleWebSocketMessage(data) {
+        console.log('收到消息:', data.type, data);
+        
         switch(data.type) {
-            case 'radar_data':
-                handleRadarData(data);
+            case 'websocket_connected':
+                updateStatus('connected', data.message);
                 break;
+                
+            case 'radar_data':
+                updateChart(data.timestamp, data.value);
+                break;
+                
+            case 'bridge_connected':
+                isBridgeConnected = true;
+                updateStatus('connected', data.message);
+                updateMonitoringButton();
+                showNotification('success', '桥接器连接成功！可以开始监测');
+                break;
+                
+            case 'bridge_disconnected':
+                isBridgeConnected = false;
+                updateStatus('warning', data.message);
+                updateMonitoringButton();
+                showNotification('error', '桥接器连接中断！');
+                break;
+                
             case 'monitoring_started':
                 isMonitoring = true;
-                document.getElementById('monitoringBtn').textContent = '⏹ 停止监测';
-                document.getElementById('monitoringStatus').style.display = 'block';
-                document.getElementById('statusMessage').textContent = data.message;
+                updateMonitoringUI(true, data.message);
                 break;
-            case 'monitoring_stopped':
-                isMonitoring = false;
-                document.getElementById('monitoringBtn').textContent = '🔍 开始专注监测';
-                document.getElementById('monitoringStatus').style.display = 'none';
+                
+            case 'monitoring_countdown':
+                updateCountdown(data.countdown, data.message);
                 break;
+                
+            case 'monitoring_active':
+                showNotification('info', data.message);
+                updateMonitoringStatus(data.message);
+                break;
+                
+            case 'data_collection':
+                updateMonitoringStatus(data.message);
+                break;
+                
             case 'show_cloud':
                 showFocusCloud(data);
+                hideWarning(); // 专注时隐藏警告
                 break;
-            case 'focus_lost':
-                console.log('专注状态结束');
+                
+            case 'show_warning':
+                showFocusWarning(data);
                 break;
-            case 'connection_warning':
-                showNotification('warning', data.message);
+                
+            case 'monitoring_stopped':
+                isMonitoring = false;
+                updateMonitoringUI(false, data.message);
+                hideWarning();
+                hideCloud();
                 break;
-            case 'pong':
-                // 心跳响应，保持连接活跃
-                break;
+                
             case 'error_message':
-                console.error('收到错误:', data.message);
                 showNotification('error', data.message);
                 break;
-            default:
-                console.log('未知消息类型:', data);
+                
+            case 'no_data_warning':
+                showNotification('warning', data.message);
+                break;
         }
     }
-
-    // 显示通知
-    function showNotification(type, message) {
-        const alertClass = type === 'error' ? 'alert-danger' : 'alert-warning';
-        const icon = type === 'error' ? '❌' : '⚠️';
-        
-        const notification = document.createElement('div');
-        notification.className = `alert ${alertClass}`;
-        notification.style.cssText = 'position: fixed; top: 20px; right: 20px; z-index: 9999; max-width: 300px;';
-        notification.innerHTML = `${icon} ${message}`;
-        
-        document.body.appendChild(notification);
-        
-        setTimeout(() => {
-            document.body.removeChild(notification);
-        }, 5000);
-    }
-
-    // 处理雷达数据
-    function handleRadarData(data) {
-        if (!isConnected) {
-            isConnected = true;
-            updateStatus('connected', '桥接器已连接 - 数据正常');
-            document.getElementById('monitoringBtn').disabled = false;
-        }
-        
-        // 重置连接超时
-        resetConnectionTimeout();
-        updateChart(data.timestamp, data.value);
-    }
-
-    // 连接超时管理
-    function resetConnectionTimeout() {
-        if (connectionTimeout) {
-            clearTimeout(connectionTimeout);
-        }
-        
-        connectionTimeout = setTimeout(() => {
-            if (isConnected) {
-                isConnected = false;
-                updateStatus('disconnected', '数据连接超时 - 请检查桥接器');
-                document.getElementById('monitoringBtn').disabled = true;
-            }
-        }, 45000); // 45秒超时
-    }
-
     // 更新状态显示
     function updateStatus(status, text) {
         const indicator = document.getElementById('statusIndicator');
         const statusText = document.getElementById('statusText');
         
-        indicator.className = `status-indicator status-${status}`;
+        const statusClasses = {
+            'connected': 'status-connected',
+            'disconnected': 'status-disconnected', 
+            'warning': 'status-warning'
+        };
+        
+        indicator.className = `status-indicator ${statusClasses[status] || 'status-disconnected'}`;
         statusText.textContent = text;
     }
-
-    // 更新图表 - 性能优化版
-    function updateChart(timestamp, value) {
-        const now = new Date();
-        const timeStr = now.toLocaleTimeString();
+    // 更新监测按钮状态
+    function updateMonitoringButton() {
+        const btn = document.getElementById('monitoringBtn');
         
-        chartLabels.push(timeStr);
-        chartData.push(value);
+        if (!isConnected) {
+            btn.disabled = true;
+            btn.textContent = '🔍 WebSocket未连接';
+        } else if (!isBridgeConnected) {
+            btn.disabled = true;
+            btn.textContent = '🔍 等待桥接器连接';
+        } else if (isMonitoring) {
+            btn.disabled = false;
+            btn.textContent = '⏹ 停止专注监测';
+        } else {
+            btn.disabled = false;
+            btn.textContent = '🔍 开始专注监测';
+        }
+    }
+    // 更新监测UI
+    function updateMonitoringUI(monitoring, message) {
+        const status = document.getElementById('monitoringStatus');
+        const statusMsg = document.getElementById('statusMessage');
         
-        // 保持最多100个数据点
-        const maxPoints = 100;
-        if (chartData.length > maxPoints) {
-            chartData.shift();
-            chartLabels.shift();
+        if (monitoring) {
+            status.style.display = 'block';
+            statusMsg.textContent = message;
+            status.className = 'alert alert-info';
+        } else {
+            status.style.display = 'none';
         }
         
-        // 批量更新，提高性能
-        breathChart.data.labels = [...chartLabels];
-        breathChart.data.datasets[0].data = [...chartData];
-        
-        // 根据数据量调整更新模式
-        const updateMode = chartData.length > 50 ? 'none' : 'active';
-        breathChart.update(updateMode);
+        updateMonitoringButton();
     }
-
-    // 增强的专注云朵显示
+    // 更新倒计时
+    function updateCountdown(countdown, message) {
+        const statusMsg = document.getElementById('statusMessage');
+        statusMsg.textContent = message;
+        
+        // 更新按钮显示倒计时
+        const btn = document.getElementById('monitoringBtn');
+        btn.textContent = `⏳ 准备中 ${countdown}s`;
+    }
+    // 更新监测状态消息
+    function updateMonitoringStatus(message) {
+        const statusMsg = document.getElementById('statusMessage');
+        if (statusMsg) {
+            statusMsg.textContent = message;
+        }
+    }
+    // 显示专注云朵
     function showFocusCloud(data) {
         const cloud = document.getElementById('focusCloud');
         cloud.className = 'cloud show';
         
-        console.log(`🎯 检测到专注状态! 数据点: ${data.data_count}, 专注度: ${data.focus_ratio}%`);
+        showNotification('success', `专注状态检测成功！数据点: ${data.data_count}`);
         
-        // 显示专注度信息
-        if (data.focus_ratio) {
-            showNotification('success', `专注状态检测成功！专注度: ${data.focus_ratio}%`);
+        // 5秒后自动隐藏
+        setTimeout(() => {
+            hideCloud();
+        }, 5000);
+    }
+    // 隐藏云朵
+    function hideCloud() {
+        const cloud = document.getElementById('focusCloud');
+        cloud.className = 'cloud hide';
+    }
+    // 显示专注警告
+    function showFocusWarning(data) {
+        let warning = document.getElementById('focusWarning');
+        
+        if (!warning) {
+            // 创建警告元素
+            warning = document.createElement('div');
+            warning.id = 'focusWarning';
+            warning.className = 'focus-warning show';
+            warning.innerHTML = `
+                <div class="warning-content">
+                    <div class="warning-icon">⚠️</div>
+                    <div class="warning-text">
+                        <strong>注意力分散！</strong><br>
+                        <small>请重新专注</small>
+                    </div>
+                    <button class="warning-close" onclick="dismissWarning()">×</button>
+                </div>
+            `;
+            document.body.appendChild(warning);
         }
         
-        // 8秒后隐藏
-        setTimeout(() => {
-            cloud.className = 'cloud hide';
-        }, 8000);
+        warning.className = 'focus-warning show';
+        showNotification('warning', `注意力分散！非专注数据: ${data.unfocus_values?.join(', ')}`);
     }
-
-    // 初始化图表 - 改进版
+    // 用户手动关闭警告
+    function dismissWarning() {
+        hideWarning();
+        // 通知后端用户已关闭警告
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ command: 'dismiss_warning' }));
+        }
+    }
+    // 隐藏警告
+    function hideWarning() {
+        const warning = document.getElementById('focusWarning');
+        if (warning) {
+            warning.className = 'focus-warning hide';
+        }
+    }
+    // 更新图表
+    function updateChart(timestamp, value) {
+        const timeStr = new Date().toLocaleTimeString();
+        
+        chartLabels.push(timeStr);
+        chartData.push(value);
+        
+        if (chartData.length > 100) {
+            chartData.shift();
+            chartLabels.shift();
+        }
+        
+        breathChart.data.labels = chartLabels;
+        breathChart.data.datasets[0].data = chartData;
+        breathChart.update('none');
+    }
+    // 显示通知
+    function showNotification(type, message) {
+        const alertClasses = {
+            'error': 'alert-danger',
+            'warning': 'alert-warning', 
+            'success': 'alert-success',
+            'info': 'alert-info'
+        };
+        
+        const icons = {
+            'error': '❌',
+            'warning': '⚠️',
+            'success': '✅',
+            'info': 'ℹ️'
+        };
+        
+        const alertClass = alertClasses[type] || 'alert-info';
+        const icon = icons[type] || 'ℹ️';
+        
+        const notification = document.createElement('div');
+        notification.className = `alert ${alertClass} notification`;
+        notification.style.cssText = `
+            position: fixed; 
+            top: 20px; 
+            right: 20px; 
+            z-index: 10000; 
+            max-width: 350px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            animation: slideIn 0.3s ease-out;
+        `;
+        notification.innerHTML = `${icon} ${message}`;
+        
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            if (document.body.contains(notification)) {
+                notification.style.animation = 'slideOut 0.3s ease-in';
+                setTimeout(() => {
+                    if (document.body.contains(notification)) {
+                        document.body.removeChild(notification);
+                    }
+                }, 300);
+            }
+        }, 5000);
+    }
+    // 初始化图表
     function initChart() {
         const ctx = document.getElementById('breathChart').getContext('2d');
         breathChart = new Chart(ctx, {
@@ -296,37 +363,15 @@
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                interaction: {
-                    intersect: false,
-                    mode: 'index'
-                },
-                animation: {
-                    duration: 300
-                },
-                plugins: {
-                    title: {
-                        display: true,
-                        text: '实时呼吸数据监测',
-                        color: '#8B4513',
-                        font: { size: 16, weight: 'bold' }
-                    },
-                    legend: {
-                        labels: { color: '#8B4513' }
-                    },
-                    tooltip: {
-                        backgroundColor: 'rgba(255, 215, 0, 0.9)',
-                        titleColor: '#8B4513',
-                        bodyColor: '#8B4513'
-                    }
-                },
+                animation: { duration: 0 },
                 scales: {
-                    y: {
-                        beginAtZero: true,
+                    y: { 
+                        beginAtZero: true, 
                         max: 50,
                         grid: { color: '#DEB887' },
                         ticks: { color: '#8B4513' }
                     },
-                    x: {
+                    x: { 
                         grid: { color: '#DEB887' },
                         ticks: { 
                             color: '#8B4513',
@@ -337,130 +382,114 @@
             }
         });
     }
-
     // 页面初始化
     document.addEventListener('DOMContentLoaded', function() {
         initChart();
         initWebSocket();
         
-                document.getElementById('monitoringBtn').addEventListener('click', function() {
+        // 监测按钮点击事件
+        document.getElementById('monitoringBtn').addEventListener('click', function() {
             if (!isConnected) {
-                showNotification('warning', '请先连接桥接器！');
+                showNotification('error', 'WebSocket未连接！');
                 return;
             }
             
-            if (!isMonitoring) {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ command: 'start_monitoring' }));
-                } else {
-                    showNotification('error', 'WebSocket连接不可用');
-                }
-            } else {
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ command: 'stop_monitoring' }));
-                } else {
-                    showNotification('error', 'WebSocket连接不可用');
-                }
+            if (!isBridgeConnected) {
+                showNotification('warning', '请先启动桥接器连接！');
+                return;
             }
+            
+            const command = isMonitoring ? 'stop_monitoring' : 'start_monitoring';
+            ws.send(JSON.stringify({ command }));
         });
-
-        // 页面可见性变化处理
-        document.addEventListener('visibilitychange', function() {
-            if (document.visibilityState === 'visible') {
-                // 页面变为可见时，检查连接状态
-                if (!ws || ws.readyState === WebSocket.CLOSED) {
-                    console.log('页面重新可见，重新连接WebSocket');
-                    setTimeout(initWebSocket, 1000);
-                }
-            }
-        });
-
-        // 页面卸载时清理
-        window.addEventListener('beforeunload', function() {
-            stopHeartbeat();
-            if (ws) {
-                ws.close(1000, 'Page unloading');
-            }
-        });
+        
+        // 初始状态
+        updateMonitoringButton();
     });
-
-    // 添加成功通知样式
-    function showNotification(type, message) {
-        const alertClasses = {
-            'error': 'alert-danger',
-            'warning': 'alert-warning', 
-            'success': 'alert-success',
-            'info': 'alert-info'
-        };
-        
-        const icons = {
-            'error': '❌',
-            'warning': '⚠️',
-            'success': '✅',
-            'info': 'ℹ️'
-        };
-        
-        const alertClass = alertClasses[type] || 'alert-info';
-        const icon = icons[type] || 'ℹ️';
-        
-        const notification = document.createElement('div');
-        notification.className = `alert ${alertClass}`;
-        notification.style.cssText = `
-            position: fixed; 
-            top: 20px; 
-            right: 20px; 
-            z-index: 9999; 
-            max-width: 300px;
-            border-radius: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            animation: slideIn 0.3s ease-out;
-        `;
-        notification.innerHTML = `${icon} ${message}`;
-        
-        document.body.appendChild(notification);
-        
-        setTimeout(() => {
-            if (document.body.contains(notification)) {
-                notification.style.animation = 'slideOut 0.3s ease-in';
-                setTimeout(() => {
-                    if (document.body.contains(notification)) {
-                        document.body.removeChild(notification);
-                    }
-                }, 300);
-            }
-        }, 5000);
-    }
 </script>
-
-<!-- 添加CSS动画 -->
+<!-- 添加警告样式 -->
 <style>
+/* 专注警告牌样式 */
+.focus-warning {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9998;
+    background: linear-gradient(45deg, #dc3545, #c82333);
+    color: white;
+    border-radius: 15px;
+    padding: 15px;
+    box-shadow: 0 8px 32px rgba(220, 53, 69, 0.5);
+    transform: translateX(400px);
+    transition: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    max-width: 300px;
+}
+.focus-warning.show {
+    transform: translateX(0);
+    animation: warningShake 0.5s ease-in-out;
+}
+.focus-warning.hide {
+    transform: translateX(400px);
+}
+@keyframes warningShake {
+    0%, 100% { transform: translateX(0) rotate(0deg); }
+    25% { transform: translateX(-5px) rotate(-1deg); }
+    75% { transform: translateX(5px) rotate(1deg); }
+}
+.warning-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.warning-icon {
+    font-size: 24px;
+    animation: warningPulse 1s infinite;
+}
+@keyframes warningPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+}
+.warning-text strong {
+    display: block;
+    font-size: 14px;
+    margin-bottom: 2px;
+}
+.warning-text small {
+    font-size: 12px;
+    opacity: 0.9;
+}
+.warning-close {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0;
+    margin-left: auto;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+.warning-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+/* 警告状态指示器 */
+.status-warning {
+    background: #ffc107;
+    box-shadow: 0 0 15px #ffc107;
+}
+/* 通知动画 */
 @keyframes slideIn {
     from { transform: translateX(100%); opacity: 0; }
     to { transform: translateX(0); opacity: 1; }
 }
-
 @keyframes slideOut {
     from { transform: translateX(0); opacity: 1; }
     to { transform: translateX(100%); opacity: 0; }
-}
-
-/* 改进成功提示样式 */
-.alert-success {
-    background: linear-gradient(135deg, #d4edda, #c3e6cb);
-    border-color: #28a745;
-    color: #155724;
-}
-
-.alert-danger {
-    background: linear-gradient(135deg, #f8d7da, #f5c6cb);
-    border-color: #dc3545;
-    color: #721c24;
-}
-
-.alert-warning {
-    background: linear-gradient(135deg, #fff3cd, #ffeaa7);
-    border-color: #ffc107;
-    color: #856404;
 }
 </style>
 {% endblock %}
