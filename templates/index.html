@@ -3,17 +3,17 @@
 {% block content %}
 <div class="card">
     <div class="card-header">
-        <h3>🎯 专注状态实时监测</h3>
+        <h3>专注状态实时监测</h3>
     </div>
     <div class="card-body" style="padding: 30px;">
         
         <!-- GitHub 链接提示 -->
         <div class="alert alert-info">
-            <h5>📦 获取桥接器程序</h5>
+            <h5>获取桥接器程序</h5>
             <p>请访问我们的GitHub仓库下载桥接器：</p>
-            <a href="https://github.com/yourusername/radar-bridge" 
+            <a href="https://github.com/dochquaintperse-debug/radar-monitoring" 
                class="btn btn-primary" target="_blank">
-                📥 前往 GitHub 下载
+                前往 GitHub 下载
             </a>
             <p class="mt-2 mb-0">
                 <small>运行桥接器后，输入本网站地址进行连接</small>
@@ -29,7 +29,7 @@
         <!-- 监测按钮和状态 -->
         <div style="text-align: center; margin: 30px 0;">
             <button id="monitoringBtn" class="btn btn-primary btn-lg" disabled>
-                🔍 开始专注监测
+                开始专注监测
             </button>
             <div id="monitoringStatus" style="margin-top: 15px; display: none;">
                 <div class="alert alert-warning">
@@ -41,7 +41,7 @@
         <!-- 实时图表 -->
         <div class="card">
             <div class="card-header">
-                <h4>📊 呼吸数据实时图表</h4>
+                <h4>呼吸数据实时图表</h4>
             </div>
             <div class="card-body">
                 <div style="height: 400px;">
@@ -178,16 +178,16 @@
         
         if (!isConnected) {
             btn.disabled = true;
-            btn.textContent = '🔍 WebSocket未连接';
+            btn.textContent = 'WebSocket未连接';
         } else if (!isBridgeConnected) {
             btn.disabled = true;
-            btn.textContent = '🔍 等待桥接器连接';
+            btn.textContent = '等待桥接器连接';
         } else if (isMonitoring) {
             btn.disabled = false;
-            btn.textContent = '⏹ 停止专注监测';
+            btn.textContent = '停止专注监测';
         } else {
             btn.disabled = false;
-            btn.textContent = '🔍 开始专注监测';
+            btn.textContent = '开始专注监测';
         }
     }
     // 更新监测UI
@@ -212,7 +212,7 @@
         
         // 更新按钮显示倒计时
         const btn = document.getElementById('monitoringBtn');
-        btn.textContent = `⏳ 准备中 ${countdown}s`;
+        btn.textContent = `准备中 ${countdown}s`;
     }
     // 更新监测状态消息
     function updateMonitoringStatus(message) {

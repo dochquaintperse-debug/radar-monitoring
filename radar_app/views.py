@@ -49,5 +49,5 @@ def api_test(request):
     return JsonResponse({
         'success': True,
         'message': '专注状态监测系统',
-        'github': 'https://github.com/yourusername/radar-bridge'
+        'github': 'https://github.com/dochquaintperse-debug/radar-monitoring'
     })
