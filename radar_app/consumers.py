@@ -13,6 +13,7 @@ class RadarConsumer(AsyncWebsocketConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.monitoring_task = None
+        self.connection_check_task = None
         self.is_monitoring = False
         self.bridge_connected = False
         self.last_data_time = None
@@ -23,7 +24,9 @@ class RadarConsumer(AsyncWebsocketConsumer):
         try:
             await self.channel_layer.group_add("radar_group", self.channel_name)
             await self.accept()
-            logger.info("WebSocket连接已建立")
+            
+            # 启动连接检查任务
+            self.connection_check_task = asyncio.create_task(self.connection_check())
             
             # 发送连接状态
             await self.send(text_data=json.dumps({
@@ -36,10 +39,14 @@ class RadarConsumer(AsyncWebsocketConsumer):
             await self.close()
         
     async def disconnect(self, close_code):
-        # 停止监测任务
+        # 停止所有任务
         if self.monitoring_task and not self.monitoring_task.done():
             self.monitoring_task.cancel()
-            self.is_monitoring = False
+        
+        if self.connection_check_task and not self.connection_check_task.done():
+            self.connection_check_task.cancel()
+            
+        self.is_monitoring = False
         
         try:
             await self.channel_layer.group_discard("radar_group", self.channel_name)
@@ -89,75 +96,41 @@ class RadarConsumer(AsyncWebsocketConsumer):
         
         await self.send(text_data=json.dumps({
             'type': 'monitoring_started',
-            'message': '专注监测即将开始，请等待60秒初始化...'
+            'message': '专注监测已启动'
         }))
         
-        # 创建监测任务
         self.monitoring_task = asyncio.create_task(self._monitoring_loop())
 
     async def _monitoring_loop(self):
-        """完整的监测循环 - 按照您的需求实现"""
         try:
-            logger.info("开始监测循环，等待60秒...")
-            
-            # 等待60秒初始化
-            await self.send(text_data=json.dumps({
-                'type': 'monitoring_countdown',
-                'message': '监测准备中，60秒后开始...',
-                'countdown': 60
-            }))
-            
-            for i in range(60, 0, -1):
+            for i in range(60):
                 if not self.is_monitoring:
                     return
-                await self.send(text_data=json.dumps({
-                    'type': 'monitoring_countdown',
-                    'message': f'监测准备中，{i}秒后开始...',
-                    'countdown': i
-                }))
                 await asyncio.sleep(1)
             
             if not self.is_monitoring:
                 return
-                
-            await self.send(text_data=json.dumps({
-                'type': 'monitoring_active',
-                'message': '专注监测已激活！'
-            }))
             
             # 主监测循环
             while self.is_monitoring:
-                # 操作1: 连续5秒收集数据
                 focus_data = []
-                logger.info("开始5秒数据收集...")
                 
-                for second in range(5):
-                    if not self.is_monitoring:
-                        return
-                    
-                    # 获取1秒内的数据
-                    recent_data = await self._get_recent_data(1)
-                    focus_data.extend(recent_data)
-                    
-                    await self.send(text_data=json.dumps({
-                        'type': 'data_collection',
-                        'message': f'数据收集中... ({second + 1}/5秒)',
-                        'collected_count': len(focus_data)
-                    }))
-                    
-                    await asyncio.sleep(1)
+                # 持续5秒收集数据
+                start_time = timezone.now()
+                end_time = start_time + timedelta(seconds=5)
                 
-                # 判断专注状态
+                while timezone.now() < end_time and self.is_monitoring:
+                    # 获取最新数据
+                    recent_data = await self._get_recent_data(1)  # 获取1秒内的新数据
+                    
+                    if recent_data:
+                        focus_data.extend(recent_data)
+                    
+                    await asyncio.sleep(0.5)  # 小间隔检查新数据
+                
                 if focus_data:
                     await self._process_focus_data(focus_data)
-                else:
-                    logger.warning("未收集到数据")
-                    await self.send(text_data=json.dumps({
-                        'type': 'no_data_warning',
-                        'message': '未检测到数据，请检查桥接器连接'
-                    }))
                 
-                # 操作2: 停顿1秒
                 if self.is_monitoring:
                     await asyncio.sleep(1)
                 
@@ -165,20 +138,35 @@ class RadarConsumer(AsyncWebsocketConsumer):
             logger.info("监测任务已取消")
         except Exception as e:
             logger.error(f"监测循环出错: {e}")
-            await self.send(text_data=json.dumps({
-                'type': 'error_message',
-                'message': f'监测出错: {str(e)}'
-            }))
+            # 静默处理错误，避免打扰用户
 
     async def _process_focus_data(self, focus_data):
-        """处理专注数据判断"""
-        # 严格判断：所有数据都必须是15/16/17
-        focus_values = [v for v in focus_data if v in [15, 16, 17]]
-        is_all_focused = len(focus_values) == len(focus_data) and len(focus_data) >= 3
+
+        # 统计各个值的出现次数
+        value_counts = {}
+        for value in focus_data:
+            if value not in value_counts:
+                value_counts[value] = 0
+            value_counts[value] += 1
         
-        logger.info(f"数据分析: 总数={len(focus_data)}, 专注值={len(focus_values)}, 全专注={is_all_focused}")
+        # 特定值的计数
+        counts_15 = value_counts.get(15, 0)
+        counts_16 = value_counts.get(16, 0)
+        counts_17 = value_counts.get(17, 0)
         
-        if is_all_focused:
+        total_data = len(focus_data)
+        
+        # 判断逻辑：数据都为15，或都为16，或都为17
+        is_all_15 = counts_15 == total_data and total_data > 0
+        is_all_16 = counts_16 == total_data and total_data > 0
+        is_all_17 = counts_17 == total_data and total_data > 0
+        
+        is_focused = is_all_15 or is_all_16 or is_all_17
+        
+        logger.info(f"数据分析: 总数={total_data}, 全15={is_all_15}, 全16={is_all_16}, 全17={is_all_17}, 专注={is_focused}")
+        
+        
+        if is_focused:
             # 进入专注状态
             if not self.focus_state:
                 self.focus_state = True
@@ -187,29 +175,29 @@ class RadarConsumer(AsyncWebsocketConsumer):
                 await self.send(text_data=json.dumps({
                     'type': 'show_cloud',
                     'message': '检测到专注状态！',
-                    'data_count': len(focus_data),
-                    'focus_values': focus_values
+                    'data_count': total_data,
+                    'focus_value': 15 if is_all_15 else (16 if is_all_16 else 17)
                 }))
                 
-                logger.info("🎯 用户进入专注状态")
+                logger.info("用户进入专注状态")
             else:
-                # 已经专注，不重复显示云朵
-                logger.info("🎯 用户保持专注状态")
+
+                logger.info("用户保持专注状态")
         else:
             # 非专注状态
             if self.focus_state:
                 self.focus_state = False
-                logger.info("❌ 用户离开专注状态")
+                logger.info("用户离开专注状态")
             
-            # 显示红色警告牌（如果未显示）
+            # 显示红色警告牌
             if not self.warning_shown:
                 self.warning_shown = True
                 await self.send(text_data=json.dumps({
                     'type': 'show_warning',
                     'message': '注意力分散！请专注！',
-                    'data_count': len(focus_data),
-                    'focus_count': len(focus_values),
-                    'unfocus_values': [v for v in focus_data if v not in [15, 16, 17]]
+                    'data_count': total_data,
+                    'counts': value_counts,
+                    'unfocus_values': list(set(focus_data) - {15, 16, 17})
                 }))
                 logger.info("⚠️ 显示专注警告")
 
@@ -269,14 +257,19 @@ class RadarConsumer(AsyncWebsocketConsumer):
     async def connection_check(self):
         """定期检查桥接器连接"""
         while True:
-            await asyncio.sleep(30)  # 每30秒检查一次
-            
-            if self.last_data_time:
-                time_diff = timezone.now() - self.last_data_time
-                if time_diff.total_seconds() > 60:  # 超过60秒无数据
-                    if self.bridge_connected:
-                        self.bridge_connected = False
-                        await self.send(text_data=json.dumps({
-                            'type': 'bridge_disconnected',
-                            'message': '桥接器连接中断，请检查'
-                        }))
+            try:
+                await asyncio.sleep(30)  # 每30秒检查一次
+                
+                if self.last_data_time:
+                    time_diff = timezone.now() - self.last_data_time
+                    if time_diff.total_seconds() > 60:  # 超过60秒无数据
+                        if self.bridge_connected:
+                            self.bridge_connected = False
+                            await self.send(text_data=json.dumps({
+                                'type': 'bridge_disconnected',
+                                'message': '桥接器连接中断，请检查'
+                            }))
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"连接检查错误: {e}")

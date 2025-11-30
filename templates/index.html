@@ -119,23 +119,10 @@
                 isMonitoring = true;
                 updateMonitoringUI(true, data.message);
                 break;
-                
-            case 'monitoring_countdown':
-                updateCountdown(data.countdown, data.message);
-                break;
-                
-            case 'monitoring_active':
-                showNotification('info', data.message);
-                updateMonitoringStatus(data.message);
-                break;
-                
-            case 'data_collection':
-                updateMonitoringStatus(data.message);
-                break;
-                
+
             case 'show_cloud':
                 showFocusCloud(data);
-                hideWarning(); // 专注时隐藏警告
+                hideWarning();
                 break;
                 
             case 'show_warning':
@@ -154,7 +141,6 @@
                 break;
                 
             case 'no_data_warning':
-                showNotification('warning', data.message);
                 break;
         }
     }
@@ -197,7 +183,7 @@
         
         if (monitoring) {
             status.style.display = 'block';
-            statusMsg.textContent = message;
+            statusMsg.textContent = message || '专注监测运行中...';
             status.className = 'alert alert-info';
         } else {
             status.style.display = 'none';
@@ -221,23 +207,31 @@
             statusMsg.textContent = message;
         }
     }
+    let cloudHideTimeout = null;
+
     // 显示专注云朵
     function showFocusCloud(data) {
         const cloud = document.getElementById('focusCloud');
+        
+        // 清除之前的隐藏timeout
+        if (cloudHideTimeout) {
+            clearTimeout(cloudHideTimeout);
+        }
+        
         cloud.className = 'cloud show';
-        
-        showNotification('success', `专注状态检测成功！数据点: ${data.data_count}`);
-        
+
         // 5秒后自动隐藏
-        setTimeout(() => {
+        cloudHideTimeout = setTimeout(() => {
             hideCloud();
         }, 5000);
     }
+
     // 隐藏云朵
     function hideCloud() {
         const cloud = document.getElementById('focusCloud');
         cloud.className = 'cloud hide';
     }
+
     // 显示专注警告
     function showFocusWarning(data) {
         let warning = document.getElementById('focusWarning');
@@ -246,7 +240,7 @@
             // 创建警告元素
             warning = document.createElement('div');
             warning.id = 'focusWarning';
-            warning.className = 'focus-warning show';
+            warning.className = 'focus-warning';
             warning.innerHTML = `
                 <div class="warning-content">
                     <div class="warning-icon">⚠️</div>
@@ -260,9 +254,12 @@
             document.body.appendChild(warning);
         }
         
-        warning.className = 'focus-warning show';
-        showNotification('warning', `注意力分散！非专注数据: ${data.unfocus_values?.join(', ')}`);
+        // 确保警告显示
+        setTimeout(() => {
+            warning.className = 'focus-warning show';
+        }, 50);
     }
+
     // 用户手动关闭警告
     function dismissWarning() {
         hideWarning();
@@ -271,6 +268,7 @@
             ws.send(JSON.stringify({ command: 'dismiss_warning' }));
         }
     }
+
     // 隐藏警告
     function hideWarning() {
         const warning = document.getElementById('focusWarning');
@@ -278,6 +276,7 @@
             warning.className = 'focus-warning hide';
         }
     }
+
     // 更新图表
     function updateChart(timestamp, value) {
         const timeStr = new Date().toLocaleTimeString();
